@@ -6,12 +6,11 @@
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "ios": {
-      "supportsTablet": true,
-      "bundleIdentifier": "com.gajananpatagar.myadvancedai"
+      "supportsTablet": true
     },
     "android": {
-      "package": "com.gajananpatagar.myadvancedai"
-"softwareKeyboardLayoutMode": "resize"
+      "package": "com.gajananpatagar.myadvancedai",
+      "softwareKeyboardLayoutMode": "resize"
     },
     "extra": {
       "eas": {

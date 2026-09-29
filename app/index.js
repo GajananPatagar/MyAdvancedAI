@@ -14,7 +14,7 @@ import * as Sharing from 'expo-sharing';
 import EventSource from 'react-native-sse';
 
 export default function AIChatApp() {
-  const insets = useSafeAreaInsets(); // Fixes the Android Keyboard overlap bug
+  const insets = useSafeAreaInsets();
 
   // Config State
   const [apiKey, setApiKey] = useState('xpl_06e58639becf90ade37da17d2014fcaf0c1236c6');
@@ -35,7 +35,7 @@ export default function AIChatApp() {
   const [attachedFile, setAttachedFile] = useState(null);
   
   const flatListRef = useRef(null);
-  const eventSourceRef = useRef(null); // Used to cancel streaming mid-flight
+  const eventSourceRef = useRef(null);
 
   const triggerHaptic = () => {
     if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -76,7 +76,7 @@ export default function AIChatApp() {
     if (attachedFile) finalPrompt += `\n\n--- Attached File: ${attachedFile.name} ---\n${attachedFile.content}`;
 
     const userMessage = { id: Date.now().toString(), role: 'user', text: finalPrompt };
-    const aiPlaceholder = { id: (Date.now() + 1).toString(), role: 'assistant', text: '' }; // Empty block for stream
+    const aiPlaceholder = { id: (Date.now() + 1).toString(), role: 'assistant', text: '' }; 
     
     const newHistory = [aiPlaceholder, userMessage, ...messages];
     setMessages(newHistory);
@@ -94,7 +94,6 @@ export default function AIChatApp() {
       }))
     ];
 
-    // --- INSTANT STREAMING ENGINE ---
     const es = new EventSource(baseUrl.trim(), {
       method: 'POST',
       headers: {
@@ -104,7 +103,7 @@ export default function AIChatApp() {
       body: JSON.stringify({ 
         model: modelName.trim(), 
         messages: apiPayload,
-        stream: true // FLASH SPEED MAGIC
+        stream: true
       }),
     });
 
@@ -121,7 +120,6 @@ export default function AIChatApp() {
         const parsed = JSON.parse(event.data);
         const chunk = parsed.choices[0]?.delta?.content;
         if (chunk) {
-          // Append the word to the screen instantly
           setMessages((prev) => {
             const updated = [...prev];
             updated[0] = { ...updated[0], text: updated[0].text + chunk };
@@ -175,13 +173,40 @@ export default function AIChatApp() {
     await Sharing.shareAsync(fileUri);
   };
 
+  // --- FIXED ROBUST DOCUMENT PICKER ---
   const pickDocument = async () => {
-    const result = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true });
-    if (!result.canceled && result.assets.length > 0) {
-      const file = result.assets[0];
-      const content = await FileSystem.readAsStringAsync(file.uri, { encoding: FileSystem.EncodingType.UTF8 });
-      setAttachedFile({ name: file.name, content });
-      triggerHaptic();
+    try {
+      const result = await DocumentPicker.getDocumentAsync({ 
+        type: ['text/*', 'application/json', 'text/javascript', 'text/markdown', 'text/csv', 'application/xml', '*/*'],
+        copyToCacheDirectory: true 
+      });
+      
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const file = result.assets[0];
+        
+        // Prevent massive files from crashing the app (limit to 2MB)
+        if (file.size && file.size > 2 * 1024 * 1024) {
+          Alert.alert('File Too Large', 'Please select a text file smaller than 2MB.');
+          return;
+        }
+
+        try {
+          // Explicitly read as UTF8 text
+          const content = await FileSystem.readAsStringAsync(file.uri, { encoding: FileSystem.EncodingType.UTF8 });
+          
+          if (!content || content.trim() === '') {
+            Alert.alert('Empty File', 'The selected file has no readable text.');
+            return;
+          }
+          
+          setAttachedFile({ name: file.name, content });
+          triggerHaptic();
+        } catch (readErr) {
+          Alert.alert('Invalid File Type', 'Could not read file. Only text, CSV, and code files are supported. PDFs, Word Docs, and Images cannot be read.');
+        }
+      }
+    } catch (err) {
+      Alert.alert('Picker Error', err.message);
     }
   };
 
@@ -218,12 +243,11 @@ export default function AIChatApp() {
     );
   };
 
-  // Keyboard Overlap Fix Architecture
   return (
     <KeyboardAvoidingView 
       style={styles.container} 
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 24} // Forces Android to calculate height accurately
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 24}
     >
       <View style={{ flex: 1, paddingTop: insets.top, paddingBottom: Platform.OS === 'ios' ? 0 : 10 }}>
         {/* Header */}

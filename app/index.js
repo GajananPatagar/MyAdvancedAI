@@ -4,15 +4,18 @@ import {
   KeyboardAvoidingView, Platform, ActivityIndicator, Modal, ScrollView,
   Alert, Keyboard
 } from 'react-native';
-import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
 import * as Haptics from 'expo-haptics';
 import * as Sharing from 'expo-sharing';
+import EventSource from 'react-native-sse';
 
 export default function AIChatApp() {
+  const insets = useSafeAreaInsets(); // Fixes the Android Keyboard overlap bug
+
   // Config State
   const [apiKey, setApiKey] = useState('xpl_06e58639becf90ade37da17d2014fcaf0c1236c6');
   const [baseUrl, setBaseUrl] = useState('https://api.experientiallabs.ai/v1/chat/completions');
@@ -23,21 +26,21 @@ export default function AIChatApp() {
   const [isFetchingModels, setIsFetchingModels] = useState(false);
 
   // Chat State
-  const [messages, setMessages] = useState([]);
+  const [messages, setMessages] = useState([
+    { id: 'init-1', role: 'assistant', text: 'Streaming Enabled. I will now reply like a flash ⚡️' },
+  ]);
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [replyingTo, setReplyingTo] = useState(null);
   const [attachedFile, setAttachedFile] = useState(null);
   
   const flatListRef = useRef(null);
-  const abortControllerRef = useRef(null);
+  const eventSourceRef = useRef(null); // Used to cancel streaming mid-flight
 
-  // Trigger Haptic Feedback
   const triggerHaptic = () => {
     if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   };
 
-  // --- API LOGIC ---
   const fetchModels = async () => {
     setIsFetchingModels(true);
     triggerHaptic();
@@ -56,15 +59,15 @@ export default function AIChatApp() {
   };
 
   const stopGeneration = () => {
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-      abortControllerRef.current = null;
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close();
+      eventSourceRef.current = null;
       setIsLoading(false);
       triggerHaptic();
     }
   };
 
-  const sendMessage = async (overrideText = null) => {
+  const sendMessage = (overrideText = null) => {
     const textToSend = overrideText || inputText;
     if (!textToSend.trim() && !attachedFile) return;
 
@@ -73,8 +76,9 @@ export default function AIChatApp() {
     if (attachedFile) finalPrompt += `\n\n--- Attached File: ${attachedFile.name} ---\n${attachedFile.content}`;
 
     const userMessage = { id: Date.now().toString(), role: 'user', text: finalPrompt };
-    const newHistory = [userMessage, ...messages];
+    const aiPlaceholder = { id: (Date.now() + 1).toString(), role: 'assistant', text: '' }; // Empty block for stream
     
+    const newHistory = [aiPlaceholder, userMessage, ...messages];
     setMessages(newHistory);
     setInputText('');
     setReplyingTo(null);
@@ -82,57 +86,62 @@ export default function AIChatApp() {
     setIsLoading(true);
     triggerHaptic();
 
-    // Context Payload including System Prompt
     const apiPayload = [
       { role: 'system', content: systemPrompt },
-      ...[...newHistory].reverse().map((msg) => ({
+      ...[...messages, userMessage].reverse().map((msg) => ({
         role: msg.role === 'assistant' ? 'assistant' : 'user',
         content: msg.text,
       }))
     ];
 
-    abortControllerRef.current = new AbortController();
+    // --- INSTANT STREAMING ENGINE ---
+    const es = new EventSource(baseUrl.trim(), {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey.trim()}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ 
+        model: modelName.trim(), 
+        messages: apiPayload,
+        stream: true // FLASH SPEED MAGIC
+      }),
+    });
 
-    try {
-      const response = await fetch(baseUrl.trim(), {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${apiKey.trim()}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ model: modelName.trim(), messages: apiPayload }),
-        signal: abortControllerRef.current.signal
-      });
+    eventSourceRef.current = es;
 
-      // Raw Error Catching (Solves JSON Parse e error)
-      const textResponse = await response.text();
-      let data;
-      try {
-        data = JSON.parse(textResponse);
-      } catch (err) {
-        throw new Error(`API Rejected Request (Not JSON): ${textResponse.substring(0, 100)}`);
-      }
-
-      if (data.choices && data.choices.length > 0) {
+    es.addEventListener('message', (event) => {
+      if (event.data === '[DONE]') {
+        es.close();
+        setIsLoading(false);
         triggerHaptic();
-        setMessages((prev) => [{
-          id: (Date.now() + 1).toString(),
-          role: 'assistant',
-          text: data.choices[0].message.content,
-        }, ...prev]);
-      } else if (data.error) {
-        throw new Error(data.error.message);
+        return;
       }
-    } catch (err) {
-      if (err.name === 'AbortError') return; // Ignore aborts
-      setMessages((prev) => [{ id: (Date.now() + 1).toString(), role: 'assistant', text: `⚠️ API Error: ${err.message}` }, ...prev]);
-    } finally {
+      try {
+        const parsed = JSON.parse(event.data);
+        const chunk = parsed.choices[0]?.delta?.content;
+        if (chunk) {
+          // Append the word to the screen instantly
+          setMessages((prev) => {
+            const updated = [...prev];
+            updated[0] = { ...updated[0], text: updated[0].text + chunk };
+            return updated;
+          });
+        }
+      } catch (e) {}
+    });
+
+    es.addEventListener('error', (event) => {
+      es.close();
       setIsLoading(false);
-      abortControllerRef.current = null;
-    }
+      setMessages((prev) => {
+        const updated = [...prev];
+        updated[0] = { ...updated[0], text: updated[0].text + "\n⚠️ Stream Error or API Rejected Request." };
+        return updated;
+      });
+    });
   };
 
-  // --- ACTIONS ---
   const copyText = async (text) => {
     await Clipboard.setStringAsync(text);
     triggerHaptic();
@@ -180,11 +189,7 @@ export default function AIChatApp() {
     const isUser = item.role === 'user';
     return (
       <View style={[styles.messageWrapper, isUser ? styles.userWrapper : styles.aiWrapper]}>
-        <TouchableOpacity
-          onLongPress={() => setReplyingTo(item)}
-          activeOpacity={0.85}
-          style={[styles.messageBubble, isUser ? styles.userBubble : styles.aiBubble]}
-        >
+        <TouchableOpacity onLongPress={() => setReplyingTo(item)} activeOpacity={0.85} style={[styles.messageBubble, isUser ? styles.userBubble : styles.aiBubble]}>
           <Text style={[styles.messageText, isUser ? styles.userText : styles.aiText]}>{item.text}</Text>
         </TouchableOpacity>
         
@@ -199,7 +204,7 @@ export default function AIChatApp() {
               <Text style={styles.actionText}>Edit</Text>
             </TouchableOpacity>
           )}
-          {!isUser && index === 0 && (
+          {!isUser && index === 0 && !isLoading && (
             <TouchableOpacity style={styles.actionBtn} onPress={() => { deleteMessage(item.id); sendMessage(messages[1]?.text); }}>
               <Ionicons name="refresh" size={14} color="#71717a" />
               <Text style={styles.actionText}>Regenerate</Text>
@@ -213,49 +218,19 @@ export default function AIChatApp() {
     );
   };
 
-  // --- KEYBOARD & INPUT RENDER ---
-  const InputArea = (
-    <View style={styles.inputContainer}>
-      <TouchableOpacity style={styles.attachButton} onPress={pickDocument}>
-        <Ionicons name="attach" size={26} color="#a1a1aa" />
-      </TouchableOpacity>
-      
-      <View style={styles.inputWrapper}>
-        <TextInput
-          style={styles.input}
-          placeholder="Message AI..."
-          placeholderTextColor="#71717a"
-          value={inputText}
-          onChangeText={setInputText}
-          multiline
-        />
-        <Text style={styles.charCount}>{inputText.length} chars</Text>
-      </View>
-      
-      {isLoading ? (
-        <TouchableOpacity style={styles.stopButton} onPress={stopGeneration}>
-          <Ionicons name="stop" size={18} color="#ffffff" />
-        </TouchableOpacity>
-      ) : (
-        <TouchableOpacity
-          style={[styles.sendButton, (!inputText.trim() && !attachedFile) && styles.disabledSend]}
-          onPress={() => sendMessage()}
-          disabled={!inputText.trim() && !attachedFile}
-        >
-          <Ionicons name="arrow-up" size={22} color="#ffffff" />
-        </TouchableOpacity>
-      )}
-    </View>
-  );
-
+  // Keyboard Overlap Fix Architecture
   return (
-    <SafeAreaProvider>
-      <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+    <KeyboardAvoidingView 
+      style={styles.container} 
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 24} // Forces Android to calculate height accurately
+    >
+      <View style={{ flex: 1, paddingTop: insets.top, paddingBottom: Platform.OS === 'ios' ? 0 : 10 }}>
         {/* Header */}
         <View style={styles.header}>
           <View>
             <Text style={styles.headerTitle}>Advanced AI Chat</Text>
-            <Text style={styles.headerSubtitle}>{modelName}</Text>
+            <Text style={styles.headerSubtitle}>⚡️ {modelName}</Text>
           </View>
           <View style={styles.headerIcons}>
             <TouchableOpacity onPress={exportChat} style={styles.iconBtn}><Ionicons name="download-outline" size={22} color="#a1a1aa" /></TouchableOpacity>
@@ -272,6 +247,7 @@ export default function AIChatApp() {
           renderItem={renderMessage}
           inverted
           contentContainerStyle={styles.chatContainer}
+          keyboardDismissMode="on-drag"
         />
 
         {/* Context Banners */}
@@ -290,22 +266,45 @@ export default function AIChatApp() {
           </View>
         )}
 
-        {/* Platform Specific Keyboard Handling */}
-        {Platform.OS === 'ios' ? (
-          <KeyboardAvoidingView behavior="padding">{InputArea}</KeyboardAvoidingView>
-        ) : (
-          <View>{InputArea}</View>
-        )}
+        {/* Input Container */}
+        <View style={styles.inputContainer}>
+          <TouchableOpacity style={styles.attachButton} onPress={pickDocument}>
+            <Ionicons name="attach" size={26} color="#a1a1aa" />
+          </TouchableOpacity>
+          
+          <View style={styles.inputWrapper}>
+            <TextInput
+              style={styles.input}
+              placeholder="Message AI..."
+              placeholderTextColor="#71717a"
+              value={inputText}
+              onChangeText={setInputText}
+              multiline
+            />
+          </View>
+          
+          {isLoading ? (
+            <TouchableOpacity style={styles.stopButton} onPress={stopGeneration}>
+              <Ionicons name="square" size={16} color="#ffffff" />
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity
+              style={[styles.sendButton, (!inputText.trim() && !attachedFile) && styles.disabledSend]}
+              onPress={() => sendMessage()}
+              disabled={!inputText.trim() && !attachedFile}
+            >
+              <Ionicons name="arrow-up" size={22} color="#ffffff" />
+            </TouchableOpacity>
+          )}
+        </View>
 
         {/* Settings Modal */}
         <Modal visible={settingsVisible} animationType="slide" transparent>
           <View style={styles.modalOverlay}>
             <View style={styles.modalContent}>
               <Text style={styles.modalTitle}>AI Configuration</Text>
-
               <Text style={styles.inputLabel}>System Persona</Text>
               <TextInput style={styles.modalInput} value={systemPrompt} onChangeText={setSystemPrompt} multiline />
-
               <Text style={styles.inputLabel}>Model Name</Text>
               {availableModels.length > 0 ? (
                 <View style={styles.dropdownContainer}>
@@ -322,27 +321,24 @@ export default function AIChatApp() {
                   {isFetchingModels ? <ActivityIndicator color="#fff" /> : <Text style={styles.fetchButtonText}>Fetch API Models</Text>}
                 </TouchableOpacity>
               )}
-
               <Text style={styles.inputLabel}>Base URL</Text>
               <TextInput style={styles.modalInput} value={baseUrl} onChangeText={setBaseUrl} />
-              
               <Text style={styles.inputLabel}>API Key</Text>
               <TextInput style={styles.modalInput} value={apiKey} onChangeText={setApiKey} secureTextEntry />
-
               <TouchableOpacity style={styles.saveButton} onPress={() => setSettingsVisible(false)}>
                 <Text style={styles.saveButtonText}>Save & Close</Text>
               </TouchableOpacity>
             </View>
           </View>
         </Modal>
-      </SafeAreaView>
-    </SafeAreaProvider>
+      </View>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#09090b' },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: '#27272a' },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: '#27272a' },
   headerTitle: { color: '#f4f4f5', fontSize: 18, fontWeight: 'bold' },
   headerSubtitle: { color: '#10b981', fontSize: 12, marginTop: 2 },
   headerIcons: { flexDirection: 'row' },
@@ -351,7 +347,7 @@ const styles = StyleSheet.create({
   messageWrapper: { marginVertical: 8, maxWidth: '88%' },
   userWrapper: { alignSelf: 'flex-end' },
   aiWrapper: { alignSelf: 'flex-start' },
-  messageBubble: { padding: 14, borderRadius: 18 },
+  messageBubble: { padding: 14, borderRadius: 18, minHeight: 40 },
   userBubble: { backgroundColor: '#2563eb', borderBottomRightRadius: 4 },
   aiBubble: { backgroundColor: '#18181b', borderBottomLeftRadius: 4, borderWidth: 1, borderColor: '#27272a' },
   messageText: { fontSize: 15, lineHeight: 22 },
@@ -365,8 +361,7 @@ const styles = StyleSheet.create({
   inputContainer: { flexDirection: 'row', alignItems: 'flex-end', padding: 10, borderTopWidth: 1, borderTopColor: '#27272a', backgroundColor: '#09090b' },
   attachButton: { paddingBottom: 10, marginRight: 4 },
   inputWrapper: { flex: 1, backgroundColor: '#18181b', borderRadius: 24, borderWidth: 1, borderColor: '#27272a' },
-  input: { color: '#ffffff', paddingHorizontal: 16, paddingTop: 12, paddingBottom: 22, maxHeight: 120, fontSize: 15 },
-  charCount: { position: 'absolute', bottom: 6, right: 16, fontSize: 10, color: '#71717a' },
+  input: { color: '#ffffff', paddingHorizontal: 16, paddingTop: 12, paddingBottom: 12, maxHeight: 120, fontSize: 15 },
   sendButton: { backgroundColor: '#2563eb', width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center', marginLeft: 8, marginBottom: 2 },
   stopButton: { backgroundColor: '#ef4444', width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center', marginLeft: 8, marginBottom: 2 },
   disabledSend: { backgroundColor: '#27272a' },

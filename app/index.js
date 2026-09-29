@@ -1,98 +1,97 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
-  StyleSheet,
-  Text,
-  View,
-  TextInput,
-  TouchableOpacity,
-  FlatList,
-  KeyboardAvoidingView,
-  Platform,
-  ActivityIndicator,
-  Modal,
-  ScrollView,
-  Share,
-  Alert,
+  StyleSheet, Text, View, TextInput, TouchableOpacity, FlatList,
+  KeyboardAvoidingView, Platform, ActivityIndicator, Modal, ScrollView,
+  Alert, Keyboard
 } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
+import * as Haptics from 'expo-haptics';
+import * as Sharing from 'expo-sharing';
 
 export default function AIChatApp() {
-  // Configuration State
+  // Config State
   const [apiKey, setApiKey] = useState('xpl_06e58639becf90ade37da17d2014fcaf0c1236c6');
   const [baseUrl, setBaseUrl] = useState('https://api.experientiallabs.ai/v1/chat/completions');
   const [modelName, setModelName] = useState('qwen3.8-27b');
+  const [systemPrompt, setSystemPrompt] = useState('You are an advanced, helpful AI assistant.');
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [availableModels, setAvailableModels] = useState([]);
   const [isFetchingModels, setIsFetchingModels] = useState(false);
 
   // Chat State
-  const [messages, setMessages] = useState([
-    {
-      id: 'init-1',
-      role: 'assistant',
-      text: 'Connected. Attach a file, or tap the settings gear to fetch your allowed models.',
-    },
-  ]);
+  const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [replyingTo, setReplyingTo] = useState(null);
   const [attachedFile, setAttachedFile] = useState(null);
+  
   const flatListRef = useRef(null);
+  const abortControllerRef = useRef(null);
+
+  // Trigger Haptic Feedback
+  const triggerHaptic = () => {
+    if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  };
 
   // --- API LOGIC ---
   const fetchModels = async () => {
     setIsFetchingModels(true);
+    triggerHaptic();
     try {
-      // Convert /chat/completions to /models for the GET request
       const modelsUrl = baseUrl.trim().replace('/chat/completions', '/models');
-      const response = await fetch(modelsUrl, {
-        headers: { 'Authorization': `Bearer ${apiKey.trim()}` },
-      });
-      const data = await response.json();
-      if (data.data && Array.isArray(data.data)) {
-        setAvailableModels(data.data.map(m => m.id));
-      } else {
-        Alert.alert('Error', 'Could not parse models from API.');
-      }
+      const response = await fetch(modelsUrl, { headers: { 'Authorization': `Bearer ${apiKey.trim()}` }});
+      const text = await response.text();
+      let data;
+      try { data = JSON.parse(text); } catch (e) { throw new Error(`Non-JSON Error: ${text.substring(0, 50)}`); }
+      if (data.data) setAvailableModels(data.data.map(m => m.id));
     } catch (err) {
-      Alert.alert('Network Error', 'Failed to fetch models. Check URL and Key.');
+      Alert.alert('Fetch Error', err.message);
     } finally {
       setIsFetchingModels(false);
     }
   };
 
-  const sendMessage = async () => {
-    if (!inputText.trim() && !attachedFile) return;
-
-    let finalPrompt = inputText;
-    if (replyingTo) {
-      finalPrompt = `[Replying to: "${replyingTo.text}"]\n${finalPrompt}`;
+  const stopGeneration = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+      setIsLoading(false);
+      triggerHaptic();
     }
-    if (attachedFile) {
-      finalPrompt += `\n\n--- Attached File: ${attachedFile.name} ---\n${attachedFile.content}`;
-    }
+  };
 
-    const userMessage = {
-      id: Date.now().toString(),
-      role: 'user',
-      text: finalPrompt,
-    };
+  const sendMessage = async (overrideText = null) => {
+    const textToSend = overrideText || inputText;
+    if (!textToSend.trim() && !attachedFile) return;
 
+    let finalPrompt = textToSend;
+    if (replyingTo) finalPrompt = `[Replying to: "${replyingTo.text}"]\n${finalPrompt}`;
+    if (attachedFile) finalPrompt += `\n\n--- Attached File: ${attachedFile.name} ---\n${attachedFile.content}`;
+
+    const userMessage = { id: Date.now().toString(), role: 'user', text: finalPrompt };
     const newHistory = [userMessage, ...messages];
+    
     setMessages(newHistory);
     setInputText('');
     setReplyingTo(null);
     setAttachedFile(null);
     setIsLoading(true);
+    triggerHaptic();
 
-    const apiPayload = [...newHistory].reverse().map((msg) => ({
-      role: msg.role === 'assistant' ? 'assistant' : 'user',
-      content: msg.text,
-    }));
+    // Context Payload including System Prompt
+    const apiPayload = [
+      { role: 'system', content: systemPrompt },
+      ...[...newHistory].reverse().map((msg) => ({
+        role: msg.role === 'assistant' ? 'assistant' : 'user',
+        content: msg.text,
+      }))
+    ];
+
+    abortControllerRef.current = new AbortController();
 
     try {
       const response = await fetch(baseUrl.trim(), {
@@ -101,68 +100,83 @@ export default function AIChatApp() {
           'Authorization': `Bearer ${apiKey.trim()}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          model: modelName.trim(),
-          messages: apiPayload,
-        }),
+        body: JSON.stringify({ model: modelName.trim(), messages: apiPayload }),
+        signal: abortControllerRef.current.signal
       });
 
-      const data = await response.json();
+      // Raw Error Catching (Solves JSON Parse e error)
+      const textResponse = await response.text();
+      let data;
+      try {
+        data = JSON.parse(textResponse);
+      } catch (err) {
+        throw new Error(`API Rejected Request (Not JSON): ${textResponse.substring(0, 100)}`);
+      }
 
       if (data.choices && data.choices.length > 0) {
+        triggerHaptic();
         setMessages((prev) => [{
           id: (Date.now() + 1).toString(),
           role: 'assistant',
           text: data.choices[0].message.content,
         }, ...prev]);
       } else if (data.error) {
-        throw new Error(data.error.message || 'API returned an error');
+        throw new Error(data.error.message);
       }
     } catch (err) {
-      setMessages((prev) => [{
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        text: `⚠️ Error: ${err.message}`,
-      }, ...prev]);
+      if (err.name === 'AbortError') return; // Ignore aborts
+      setMessages((prev) => [{ id: (Date.now() + 1).toString(), role: 'assistant', text: `⚠️ API Error: ${err.message}` }, ...prev]);
     } finally {
       setIsLoading(false);
+      abortControllerRef.current = null;
     }
   };
 
   // --- ACTIONS ---
-  const handleCopy = async (text) => {
+  const copyText = async (text) => {
     await Clipboard.setStringAsync(text);
+    triggerHaptic();
   };
 
-  const handleShare = async (text) => {
-    try {
-      await Share.share({ message: text });
-    } catch (error) {
-      console.log('Error sharing:', error);
-    }
+  const deleteMessage = (id) => {
+    triggerHaptic();
+    setMessages(prev => prev.filter(msg => msg.id !== id));
+  };
+
+  const editUserMessage = (msg) => {
+    triggerHaptic();
+    setInputText(msg.text);
+    deleteMessage(msg.id);
+  };
+
+  const clearChat = () => {
+    Alert.alert('Clear Chat', 'Wipe all AI memory?', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Clear', style: 'destructive', onPress: () => { setMessages([]); triggerHaptic(); } }
+    ]);
+  };
+
+  const exportChat = async () => {
+    triggerHaptic();
+    const chatText = messages.slice().reverse()
+      .map(m => `${m.role.toUpperCase()}:\n${m.text}\n------------------\n`)
+      .join('\n');
+    const fileUri = FileSystem.cacheDirectory + 'chat_export.txt';
+    await FileSystem.writeAsStringAsync(fileUri, chatText);
+    await Sharing.shareAsync(fileUri);
   };
 
   const pickDocument = async () => {
-    try {
-      const result = await DocumentPicker.getDocumentAsync({
-        type: ['text/*', 'application/json', 'text/javascript', 'text/markdown', 'text/csv'],
-        copyToCacheDirectory: true,
-      });
-      if (!result.canceled && result.assets && result.assets.length > 0) {
-        const file = result.assets[0];
-        try {
-          const content = await FileSystem.readAsStringAsync(file.uri, { encoding: FileSystem.EncodingType.UTF8 });
-          setAttachedFile({ name: file.name, content });
-        } catch (err) {
-          Alert.alert('File Error', 'Could not read file. Please ensure it is a valid text/code document.');
-        }
-      }
-    } catch (err) {
-      console.error(err);
+    const result = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true });
+    if (!result.canceled && result.assets.length > 0) {
+      const file = result.assets[0];
+      const content = await FileSystem.readAsStringAsync(file.uri, { encoding: FileSystem.EncodingType.UTF8 });
+      setAttachedFile({ name: file.name, content });
+      triggerHaptic();
     }
   };
 
-  const renderMessage = ({ item }) => {
+  const renderMessage = ({ item, index }) => {
     const isUser = item.role === 'user';
     return (
       <View style={[styles.messageWrapper, isUser ? styles.userWrapper : styles.aiWrapper]}>
@@ -171,41 +185,86 @@ export default function AIChatApp() {
           activeOpacity={0.85}
           style={[styles.messageBubble, isUser ? styles.userBubble : styles.aiBubble]}
         >
-          <Text style={[styles.messageText, isUser ? styles.userText : styles.aiText]}>
-            {item.text}
-          </Text>
+          <Text style={[styles.messageText, isUser ? styles.userText : styles.aiText]}>{item.text}</Text>
         </TouchableOpacity>
         
-        {/* Message Action Bar (Copy / Share) */}
         <View style={[styles.actionBar, isUser ? { justifyContent: 'flex-end' } : { justifyContent: 'flex-start' }]}>
-          <TouchableOpacity style={styles.actionBtn} onPress={() => handleCopy(item.text)}>
-            <Ionicons name="copy-outline" size={16} color="#71717a" />
+          <TouchableOpacity style={styles.actionBtn} onPress={() => copyText(item.text)}>
+            <Ionicons name="copy-outline" size={14} color="#71717a" />
             <Text style={styles.actionText}>Copy</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.actionBtn} onPress={() => handleShare(item.text)}>
-            <Ionicons name="share-social-outline" size={16} color="#71717a" />
-            <Text style={styles.actionText}>Share</Text>
+          {isUser && (
+            <TouchableOpacity style={styles.actionBtn} onPress={() => editUserMessage(item)}>
+              <Ionicons name="pencil-outline" size={14} color="#71717a" />
+              <Text style={styles.actionText}>Edit</Text>
+            </TouchableOpacity>
+          )}
+          {!isUser && index === 0 && (
+            <TouchableOpacity style={styles.actionBtn} onPress={() => { deleteMessage(item.id); sendMessage(messages[1]?.text); }}>
+              <Ionicons name="refresh" size={14} color="#71717a" />
+              <Text style={styles.actionText}>Regenerate</Text>
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity style={styles.actionBtn} onPress={() => deleteMessage(item.id)}>
+            <Ionicons name="trash-outline" size={14} color="#ef4444" />
           </TouchableOpacity>
         </View>
       </View>
     );
   };
 
+  // --- KEYBOARD & INPUT RENDER ---
+  const InputArea = (
+    <View style={styles.inputContainer}>
+      <TouchableOpacity style={styles.attachButton} onPress={pickDocument}>
+        <Ionicons name="attach" size={26} color="#a1a1aa" />
+      </TouchableOpacity>
+      
+      <View style={styles.inputWrapper}>
+        <TextInput
+          style={styles.input}
+          placeholder="Message AI..."
+          placeholderTextColor="#71717a"
+          value={inputText}
+          onChangeText={setInputText}
+          multiline
+        />
+        <Text style={styles.charCount}>{inputText.length} chars</Text>
+      </View>
+      
+      {isLoading ? (
+        <TouchableOpacity style={styles.stopButton} onPress={stopGeneration}>
+          <Ionicons name="stop" size={18} color="#ffffff" />
+        </TouchableOpacity>
+      ) : (
+        <TouchableOpacity
+          style={[styles.sendButton, (!inputText.trim() && !attachedFile) && styles.disabledSend]}
+          onPress={() => sendMessage()}
+          disabled={!inputText.trim() && !attachedFile}
+        >
+          <Ionicons name="arrow-up" size={22} color="#ffffff" />
+        </TouchableOpacity>
+      )}
+    </View>
+  );
+
   return (
     <SafeAreaProvider>
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
         {/* Header */}
         <View style={styles.header}>
           <View>
             <Text style={styles.headerTitle}>Advanced AI Chat</Text>
             <Text style={styles.headerSubtitle}>{modelName}</Text>
           </View>
-          <TouchableOpacity onPress={() => setSettingsVisible(true)} style={styles.headerButton}>
-            <Ionicons name="settings-sharp" size={22} color="#a1a1aa" />
-          </TouchableOpacity>
+          <View style={styles.headerIcons}>
+            <TouchableOpacity onPress={exportChat} style={styles.iconBtn}><Ionicons name="download-outline" size={22} color="#a1a1aa" /></TouchableOpacity>
+            <TouchableOpacity onPress={clearChat} style={styles.iconBtn}><Ionicons name="trash-outline" size={22} color="#a1a1aa" /></TouchableOpacity>
+            <TouchableOpacity onPress={() => setSettingsVisible(true)} style={styles.iconBtn}><Ionicons name="settings-sharp" size={22} color="#a1a1aa" /></TouchableOpacity>
+          </View>
         </View>
 
-        {/* Message Feed */}
+        {/* Chat Area */}
         <FlatList
           ref={flatListRef}
           data={messages}
@@ -215,67 +274,44 @@ export default function AIChatApp() {
           contentContainerStyle={styles.chatContainer}
         />
 
-        {/* Context & Attachment Banners */}
+        {/* Context Banners */}
         {attachedFile && (
           <View style={styles.contextBanner}>
-            <Ionicons name="document-text" size={16} color="#10b981" style={{ marginRight: 6 }} />
+            <Ionicons name="document-text" size={16} color="#10b981" />
             <Text style={styles.contextBannerText} numberOfLines={1}>Attached: {attachedFile.name}</Text>
-            <TouchableOpacity onPress={() => setAttachedFile(null)}>
-              <Ionicons name="close-circle" size={20} color="#71717a" />
-            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setAttachedFile(null)}><Ionicons name="close-circle" size={20} color="#71717a" /></TouchableOpacity>
           </View>
         )}
-        
         {replyingTo && (
           <View style={styles.contextBanner}>
-            <Ionicons name="arrow-undo" size={16} color="#3b82f6" style={{ marginRight: 6 }} />
+            <Ionicons name="arrow-undo" size={16} color="#3b82f6" />
             <Text style={styles.contextBannerText} numberOfLines={1}>Replying: {replyingTo.text}</Text>
-            <TouchableOpacity onPress={() => setReplyingTo(null)}>
-              <Ionicons name="close-circle" size={20} color="#71717a" />
-            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setReplyingTo(null)}><Ionicons name="close-circle" size={20} color="#71717a" /></TouchableOpacity>
           </View>
         )}
 
-        {/* Input Area */}
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.inputContainer}>
-          <TouchableOpacity style={styles.attachButton} onPress={pickDocument}>
-            <Ionicons name="attach" size={26} color="#a1a1aa" />
-          </TouchableOpacity>
-          
-          <TextInput
-            style={styles.input}
-            placeholder="Message AI..."
-            placeholderTextColor="#71717a"
-            value={inputText}
-            onChangeText={setInputText}
-            multiline
-          />
-          
-          <TouchableOpacity
-            style={[styles.sendButton, (!inputText.trim() && !attachedFile || isLoading) && styles.disabledSend]}
-            onPress={sendMessage}
-            disabled={(!inputText.trim() && !attachedFile) || isLoading}
-          >
-            {isLoading ? <ActivityIndicator color="#ffffff" size="small" /> : <Ionicons name="arrow-up" size={22} color="#ffffff" />}
-          </TouchableOpacity>
-        </KeyboardAvoidingView>
+        {/* Platform Specific Keyboard Handling */}
+        {Platform.OS === 'ios' ? (
+          <KeyboardAvoidingView behavior="padding">{InputArea}</KeyboardAvoidingView>
+        ) : (
+          <View>{InputArea}</View>
+        )}
 
-        {/* Settings Modal with Drop-down Model Selection */}
+        {/* Settings Modal */}
         <Modal visible={settingsVisible} animationType="slide" transparent>
           <View style={styles.modalOverlay}>
             <View style={styles.modalContent}>
               <Text style={styles.modalTitle}>AI Configuration</Text>
 
-              <Text style={styles.inputLabel}>Select Granted Model</Text>
+              <Text style={styles.inputLabel}>System Persona</Text>
+              <TextInput style={styles.modalInput} value={systemPrompt} onChangeText={setSystemPrompt} multiline />
+
+              <Text style={styles.inputLabel}>Model Name</Text>
               {availableModels.length > 0 ? (
                 <View style={styles.dropdownContainer}>
-                  <ScrollView nestedScrollEnabled style={{ maxHeight: 150 }}>
+                  <ScrollView nestedScrollEnabled style={{ maxHeight: 120 }}>
                     {availableModels.map((m) => (
-                      <TouchableOpacity 
-                        key={m} 
-                        style={[styles.dropdownItem, modelName === m && styles.dropdownItemSelected]}
-                        onPress={() => setModelName(m)}
-                      >
+                      <TouchableOpacity key={m} style={[styles.dropdownItem, modelName === m && styles.dropdownItemSelected]} onPress={() => setModelName(m)}>
                         <Text style={[styles.dropdownText, modelName === m && styles.dropdownTextSelected]}>{m}</Text>
                       </TouchableOpacity>
                     ))}
@@ -289,7 +325,7 @@ export default function AIChatApp() {
 
               <Text style={styles.inputLabel}>Base URL</Text>
               <TextInput style={styles.modalInput} value={baseUrl} onChangeText={setBaseUrl} />
-
+              
               <Text style={styles.inputLabel}>API Key</Text>
               <TextInput style={styles.modalInput} value={apiKey} onChangeText={setApiKey} secureTextEntry />
 
@@ -309,6 +345,8 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: '#27272a' },
   headerTitle: { color: '#f4f4f5', fontSize: 18, fontWeight: 'bold' },
   headerSubtitle: { color: '#10b981', fontSize: 12, marginTop: 2 },
+  headerIcons: { flexDirection: 'row' },
+  iconBtn: { marginLeft: 16 },
   chatContainer: { padding: 16 },
   messageWrapper: { marginVertical: 8, maxWidth: '88%' },
   userWrapper: { alignSelf: 'flex-end' },
@@ -321,19 +359,22 @@ const styles = StyleSheet.create({
   aiText: { color: '#e4e4e7' },
   actionBar: { flexDirection: 'row', marginTop: 6, paddingHorizontal: 4 },
   actionBtn: { flexDirection: 'row', alignItems: 'center', marginRight: 16 },
-  actionText: { color: '#71717a', fontSize: 11, marginLeft: 4 },
+  actionText: { color: '#71717a', fontSize: 12, marginLeft: 4 },
   contextBanner: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#18181b', padding: 10, borderTopWidth: 1, borderTopColor: '#27272a' },
-  contextBannerText: { color: '#a1a1aa', fontSize: 13, flex: 1 },
-  inputContainer: { flexDirection: 'row', alignItems: 'center', padding: 10, borderTopWidth: 1, borderTopColor: '#27272a', backgroundColor: '#09090b' },
-  attachButton: { padding: 8, marginRight: 4 },
-  input: { flex: 1, backgroundColor: '#18181b', color: '#ffffff', borderRadius: 24, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 12, maxHeight: 120, fontSize: 15, borderWidth: 1, borderColor: '#27272a' },
-  sendButton: { backgroundColor: '#2563eb', width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center', marginLeft: 8 },
+  contextBannerText: { color: '#a1a1aa', fontSize: 13, flex: 1, marginLeft: 6, marginRight: 8 },
+  inputContainer: { flexDirection: 'row', alignItems: 'flex-end', padding: 10, borderTopWidth: 1, borderTopColor: '#27272a', backgroundColor: '#09090b' },
+  attachButton: { paddingBottom: 10, marginRight: 4 },
+  inputWrapper: { flex: 1, backgroundColor: '#18181b', borderRadius: 24, borderWidth: 1, borderColor: '#27272a' },
+  input: { color: '#ffffff', paddingHorizontal: 16, paddingTop: 12, paddingBottom: 22, maxHeight: 120, fontSize: 15 },
+  charCount: { position: 'absolute', bottom: 6, right: 16, fontSize: 10, color: '#71717a' },
+  sendButton: { backgroundColor: '#2563eb', width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center', marginLeft: 8, marginBottom: 2 },
+  stopButton: { backgroundColor: '#ef4444', width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center', marginLeft: 8, marginBottom: 2 },
   disabledSend: { backgroundColor: '#27272a' },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'center', padding: 20 },
   modalContent: { backgroundColor: '#18181b', borderRadius: 16, padding: 20, borderWidth: 1, borderColor: '#27272a' },
   modalTitle: { color: '#ffffff', fontSize: 20, fontWeight: 'bold', marginBottom: 10 },
   inputLabel: { color: '#a1a1aa', fontSize: 13, marginBottom: 6, marginTop: 16 },
-  modalInput: { backgroundColor: '#09090b', color: '#ffffff', borderRadius: 8, padding: 12, borderWidth: 1, borderColor: '#27272a', fontSize: 14 },
+  modalInput: { backgroundColor: '#09090b', color: '#ffffff', borderRadius: 8, padding: 12, borderWidth: 1, borderColor: '#27272a', fontSize: 14, maxHeight: 100 },
   fetchButton: { backgroundColor: '#27272a', borderRadius: 8, padding: 12, alignItems: 'center' },
   fetchButtonText: { color: '#f4f4f5', fontWeight: 'bold' },
   dropdownContainer: { backgroundColor: '#09090b', borderRadius: 8, borderWidth: 1, borderColor: '#27272a', overflow: 'hidden' },

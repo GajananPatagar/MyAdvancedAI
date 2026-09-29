@@ -37,6 +37,13 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "dc9de076-4437-46a1-9dbc-8af671c3d1ee"
+      }
+    },
+    "owner": "gaju.19"
   }
 }

@@ -49,13 +49,13 @@ export default function AIChatApp() {
   const [creditHistory, setCreditHistory] = useState([]);
   
   const [settingsVisible, setSettingsVisible] = useState(false);
-  const [activeTab, setActiveTab] = useState('models'); // 'models' or 'billing'
+  const [activeTab, setActiveTab] = useState('models'); 
   const [availableModels, setAvailableModels] = useState([]);
   const [isFetchingModels, setIsFetchingModels] = useState(false);
   const [peekModel, setPeekModel] = useState(null);
 
   // --- CHAT STATE ---
-  const [messages, setMessages] = useState([{ id: 'init-1', role: 'assistant', text: 'System initialized. 10 Premium Themes loaded. How can I assist you today?' }]);
+  const [messages, setMessages] = useState([{ id: 'init-1', role: 'assistant', text: 'System initialized. 10 Premium Themes loaded. Free models automatically detected. How can I assist you today?' }]);
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [replyingTo, setReplyingTo] = useState(null);
@@ -100,6 +100,7 @@ export default function AIChatApp() {
   const logTransaction = async (tokens, cost) => {
     const newTokens = totalTokensUsed + tokens;
     const newCost = estimatedCost + cost;
+    // Log showing $0.00 explicitly if free
     const newRecord = { id: Date.now().toString(), date: new Date().toLocaleString(), model: modelName, tokens, cost };
     const newHistory = [newRecord, ...creditHistory].slice(0, 50); 
     
@@ -114,14 +115,19 @@ export default function AIChatApp() {
 
   const triggerHaptic = () => { if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); };
 
-  // --- API LOGIC ---
+  // --- API LOGIC (WITH FREE MODEL DETECTION) ---
   const getModelPricePer1M = (id) => {
     const lowerId = id.toLowerCase();
-    if (lowerId.includes('gpt-4') || lowerId.includes('claude-3-opus')) return 15.00;
-    if (lowerId.includes('gpt-4o') || lowerId.includes('claude-3-sonnet')) return 3.00;
-    if (lowerId.includes('o1')) return 15.00;
-    if (lowerId.includes('deepseek') || lowerId.includes('qwen') || lowerId.includes('llama')) return 0.15;
-    return 0.50; 
+    
+    // FREE MODELS DETECTION
+    if (lowerId.includes('free') || lowerId.includes('local') || lowerId === 'qwen3.8-27b') return 0;
+    
+    // PAID MODELS
+    if (lowerId.includes('gpt-4') || lowerId.includes('claude-3-opus') || lowerId.includes('o1')) return 15.00;
+    if (lowerId.includes('gpt-4o') || lowerId.includes('claude-3-sonnet') || lowerId.includes('gemini-1.5-pro')) return 3.00;
+    if (lowerId.includes('deepseek') || lowerId.includes('qwen') || lowerId.includes('llama') || lowerId.includes('gemini-1.5-flash') || lowerId.includes('haiku')) return 0.15;
+    
+    return 0.50; // Default generic cost
   };
 
   const fetchModels = async () => {
@@ -132,12 +138,16 @@ export default function AIChatApp() {
       const response = await fetch(modelsUrl, { headers: { 'Authorization': `Bearer ${apiKey.trim()}` }});
       const data = await response.json();
       if (data.data) {
-        const enrichedModels = data.data.map(m => ({
-          id: m.id,
-          owner: m.owned_by || 'Unknown API',
-          costPer1M: getModelPricePer1M(m.id),
-          type: m.id.includes('vl') || m.id.includes('vision') ? 'Multimodal (Vision)' : 'Text/Reasoning'
-        }));
+        const enrichedModels = data.data.map(m => {
+          const rawCost = getModelPricePer1M(m.id);
+          return {
+            id: m.id,
+            owner: m.owned_by || 'Unknown API',
+            costPer1M: rawCost,
+            costDisplay: rawCost === 0 ? 'FREE' : `$${rawCost.toFixed(2)}/1M`,
+            type: m.id.includes('vl') || m.id.includes('vision') ? 'Multimodal (Vision)' : 'Text/Reasoning'
+          };
+        });
         setAvailableModels(enrichedModels);
       }
     } catch (err) {
@@ -207,9 +217,11 @@ export default function AIChatApp() {
         es.close();
         setIsLoading(false);
         triggerHaptic();
+        
+        // Exact Ledger Calculation
         const estTokens = Math.floor(charCount / 4) + 50; 
         const pricePer1M = getModelPricePer1M(modelName);
-        const calcCost = (estTokens / 1000000) * pricePer1M;
+        const calcCost = pricePer1M === 0 ? 0 : (estTokens / 1000000) * pricePer1M;
         logTransaction(estTokens, calcCost);
         return;
       }
@@ -416,7 +428,7 @@ export default function AIChatApp() {
                           <TouchableOpacity key={m.id} style={[styles.dropdownItem, { borderBottomColor: t.border }, modelName === m.id && { backgroundColor: t.primary + '20' }]} onPress={() => setModelName(m.id)} onPressIn={() => setPeekModel(m)} onPressOut={() => setPeekModel(null)} delayPressIn={300}>
                             <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                               <Text style={[styles.dropdownText, { color: modelName === m.id ? t.primary : t.text }]} numberOfLines={1}>{m.id.substring(0,25)}</Text>
-                              <Text style={{ color: '#10b981', fontSize: 12, fontWeight: 'bold' }}>${m.costPer1M.toFixed(2)}/1M</Text>
+                              <Text style={{ color: m.costDisplay === 'FREE' ? '#10b981' : t.textMuted, fontSize: 12, fontWeight: 'bold' }}>{m.costDisplay}</Text>
                             </View>
                           </TouchableOpacity>
                         ))}
@@ -447,7 +459,7 @@ export default function AIChatApp() {
                       </View>
                       <View style={{ alignItems: 'flex-end' }}>
                         <Text style={{ color: t.primary, fontWeight: 'bold', fontSize: 13 }}>{item.tokens} tkns</Text>
-                        <Text style={{ color: '#ef4444', fontSize: 11 }}>-${item.cost.toFixed(5)}</Text>
+                        <Text style={{ color: item.cost === 0 ? '#10b981' : '#ef4444', fontSize: 11 }}>{item.cost === 0 ? 'FREE' : `-$${item.cost.toFixed(5)}`}</Text>
                       </View>
                     </View>
                   ))}
@@ -464,7 +476,7 @@ export default function AIChatApp() {
                 <Text style={[styles.peekTitle, { color: t.text }]}>{peekModel.id}</Text>
                 <Text style={{ color: t.textMuted, marginTop: 4 }}>Capability: {peekModel.type}</Text>
                 <View style={{ backgroundColor: t.bg, padding: 8, borderRadius: 6, marginTop: 12 }}>
-                  <Text style={{ color: '#10b981', fontWeight: 'bold' }}>Cost: ${peekModel.costPer1M.toFixed(2)} per 1M Tokens</Text>
+                  <Text style={{ color: '#10b981', fontWeight: 'bold' }}>Cost: {peekModel.costDisplay}</Text>
                 </View>
               </View>
             </View>
@@ -519,6 +531,7 @@ const styles = StyleSheet.create({
   dropdownText: { fontSize: 15, fontWeight: '500' },
   saveButton: { borderRadius: 14, padding: 16, alignItems: 'center', marginTop: 32, elevation: 4 },
   saveButtonText: { color: '#ffffff', fontWeight: 'bold', fontSize: 16 },
+  ledgerCard: { padding: 20, borderRadius: 16, borderWidth: 1, alignItems: 'center', marginTop: 10 },
   peekOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.3)' },
   peekBox: { padding: 20, borderRadius: 16, width: '80%', borderWidth: 2, elevation: 10 },
   peekTitle: { fontSize: 18, fontWeight: 'bold' }

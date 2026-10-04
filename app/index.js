@@ -14,10 +14,21 @@ import * as Sharing from 'expo-sharing';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import EventSource from 'react-native-sse';
 
-// --- ENTERPRISE THEMING ENGINE ---
+// --- ULTIMATE ENTERPRISE THEMING ENGINE ---
 const THEMES = {
-  Dark: { name: 'Pro Dark', bg: '#09090b', card: '#18181b', border: '#27272a', text: '#f4f4f5', textMuted: '#a1a1aa', primary: '#2563eb', userBg: '#2563eb', aiBg: '#18181b', thinkBg: '#1e1b4b', thinkBorder: '#3730a3' },
-  OLED: { name: 'OLED Black', bg: '#000000', card: '#0a0a0a', border: '#171717', text: '#ffffff', textMuted: '#737373', primary: '#3b82f6', userBg: '#1d4ed8', aiBg: '#0a0a0a', thinkBg: '#020617', thinkBorder: '#1e293b' },
+  // 5 PROFESSIONAL DARK THEMES
+  OLED_Pure: { name: 'OLED Pure', mode: 'dark', bg: '#000000', card: '#0a0a0a', border: '#171717', text: '#ffffff', textMuted: '#737373', primary: '#3b82f6', userBg: '#1d4ed8', aiBg: '#0a0a0a', thinkBg: '#020617', thinkBorder: '#1e293b' },
+  Midnight_Indigo: { name: 'Midnight', mode: 'dark', bg: '#0B0F19', card: '#111827', border: '#1f2937', text: '#f3f4f6', textMuted: '#9ca3af', primary: '#6366f1', userBg: '#4f46e5', aiBg: '#111827', thinkBg: '#1e1b4b', thinkBorder: '#3730a3' },
+  Graphite_Pro: { name: 'Graphite', mode: 'dark', bg: '#121212', card: '#1e1e1e', border: '#2d2d2d', text: '#e4e4e7', textMuted: '#a1a1aa', primary: '#0ea5e9', userBg: '#0284c7', aiBg: '#1e1e1e', thinkBg: '#171717', thinkBorder: '#2d2d2d' },
+  Obsidian_Amethyst: { name: 'Obsidian', mode: 'dark', bg: '#0d0221', card: '#140431', border: '#2a0a5e', text: '#fae8ff', textMuted: '#e879f9', primary: '#d946ef', userBg: '#c026d3', aiBg: '#140431', thinkBg: '#2e1065', thinkBorder: '#4c1d95' },
+  Forest_Night: { name: 'Evergreen', mode: 'dark', bg: '#0f1712', card: '#152018', border: '#1f2f24', text: '#ecfdf5', textMuted: '#6ee7b7', primary: '#10b981', userBg: '#059669', aiBg: '#152018', thinkBg: '#064e3b', thinkBorder: '#065f46' },
+  
+  // 5 PROFESSIONAL LIGHT THEMES
+  Clean_Snow: { name: 'Clean Snow', mode: 'light', bg: '#ffffff', card: '#f8fafc', border: '#e2e8f0', text: '#0f172a', textMuted: '#64748b', primary: '#2563eb', userBg: '#3b82f6', aiBg: '#f8fafc', thinkBg: '#eff6ff', thinkBorder: '#bfdbfe' },
+  Corporate_Slate: { name: 'Corporate', mode: 'light', bg: '#f1f5f9', card: '#ffffff', border: '#cbd5e1', text: '#020617', textMuted: '#475569', primary: '#0f172a', userBg: '#334155', aiBg: '#ffffff', thinkBg: '#e2e8f0', thinkBorder: '#94a3b8' },
+  Ivory_Minimal: { name: 'Ivory Sepia', mode: 'light', bg: '#fdfbf7', card: '#ffffff', border: '#eaddcf', text: '#431407', textMuted: '#78350f', primary: '#d97706', userBg: '#b45309', aiBg: '#ffffff', thinkBg: '#fef3c7', thinkBorder: '#fde68a' },
+  Nordic_Frost: { name: 'Nordic Frost', mode: 'light', bg: '#f0fdfa', card: '#ffffff', border: '#ccfbf1', text: '#134e4a', textMuted: '#115e59', primary: '#0d9488', userBg: '#0f766e', aiBg: '#ffffff', thinkBg: '#ccfbf1', thinkBorder: '#99f6e4' },
+  Soft_Lavender: { name: 'Lavender', mode: 'light', bg: '#faf5ff', card: '#ffffff', border: '#f3e8ff', text: '#3b0764', textMuted: '#6b21a8', primary: '#9333ea', userBg: '#7e22ce', aiBg: '#ffffff', thinkBg: '#f3e8ff', thinkBorder: '#d8b4fe' },
 };
 
 export default function AIChatApp() {
@@ -28,9 +39,9 @@ export default function AIChatApp() {
   const [baseUrl, setBaseUrl] = useState('https://api.experientiallabs.ai/v1/chat/completions');
   const [modelName, setModelName] = useState('qwen3.8-27b');
   const [systemPrompt, setSystemPrompt] = useState('You are a highly advanced AI assistant.');
-  const [currentTheme, setCurrentTheme] = useState('Dark');
+  const [currentTheme, setCurrentTheme] = useState('Midnight_Indigo');
   const [isAdvancedThinking, setIsAdvancedThinking] = useState(false);
-  const t = THEMES[currentTheme] || THEMES.Dark;
+  const t = THEMES[currentTheme] || THEMES.Midnight_Indigo;
   
   // Ledger State
   const [totalTokensUsed, setTotalTokensUsed] = useState(0);
@@ -44,7 +55,7 @@ export default function AIChatApp() {
   const [peekModel, setPeekModel] = useState(null);
 
   // --- CHAT STATE ---
-  const [messages, setMessages] = useState([{ id: 'init-1', role: 'assistant', text: 'System initialized. You can now select and copy any part of my text natively.' }]);
+  const [messages, setMessages] = useState([{ id: 'init-1', role: 'assistant', text: 'System initialized. 10 Premium Themes loaded. How can I assist you today?' }]);
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [replyingTo, setReplyingTo] = useState(null);
@@ -69,7 +80,7 @@ export default function AIChatApp() {
       const savedCost = await AsyncStorage.getItem('totalCost');
       const savedHistory = await AsyncStorage.getItem('creditHistory');
       
-      if (savedTheme) setCurrentTheme(savedTheme);
+      if (savedTheme && THEMES[savedTheme]) setCurrentTheme(savedTheme);
       if (savedKey) setApiKey(savedKey);
       if (savedModel) setModelName(savedModel);
       if (savedTokens) setTotalTokensUsed(parseInt(savedTokens, 10));
@@ -90,7 +101,7 @@ export default function AIChatApp() {
     const newTokens = totalTokensUsed + tokens;
     const newCost = estimatedCost + cost;
     const newRecord = { id: Date.now().toString(), date: new Date().toLocaleString(), model: modelName, tokens, cost };
-    const newHistory = [newRecord, ...creditHistory].slice(0, 50); // Keep last 50
+    const newHistory = [newRecord, ...creditHistory].slice(0, 50); 
     
     setTotalTokensUsed(newTokens);
     setEstimatedCost(newCost);
@@ -110,7 +121,7 @@ export default function AIChatApp() {
     if (lowerId.includes('gpt-4o') || lowerId.includes('claude-3-sonnet')) return 3.00;
     if (lowerId.includes('o1')) return 15.00;
     if (lowerId.includes('deepseek') || lowerId.includes('qwen') || lowerId.includes('llama')) return 0.15;
-    return 0.50; // Default generic cost
+    return 0.50; 
   };
 
   const fetchModels = async () => {
@@ -166,7 +177,6 @@ export default function AIChatApp() {
     setIsLoading(true);
     triggerHaptic();
 
-    // Advanced Thinking Injection
     let currentSystemPrompt = systemPrompt;
     if (isAdvancedThinking) {
       currentSystemPrompt += "\n\nCRITICAL INSTRUCTION: You must think step-by-step before answering. Wrap your detailed reasoning process entirely inside <think> and </think> tags at the very beginning of your response, followed by your final answer.";
@@ -182,7 +192,7 @@ export default function AIChatApp() {
       })
     ];
 
-    let charCount = 0; // For token estimation
+    let charCount = 0; 
 
     const es = new EventSource(baseUrl.trim(), {
       method: 'POST',
@@ -197,8 +207,7 @@ export default function AIChatApp() {
         es.close();
         setIsLoading(false);
         triggerHaptic();
-        // Log transaction (Estimation: 1 token ≈ 4 chars)
-        const estTokens = Math.floor(charCount / 4) + 50; // +50 base overhead
+        const estTokens = Math.floor(charCount / 4) + 50; 
         const pricePer1M = getModelPricePer1M(modelName);
         const calcCost = (estTokens / 1000000) * pricePer1M;
         logTransaction(estTokens, calcCost);
@@ -384,15 +393,17 @@ export default function AIChatApp() {
 
               {activeTab === 'models' ? (
                 <ScrollView style={{ marginTop: 10 }} showsVerticalScrollIndicator={false}>
-                  <Text style={[styles.inputLabel, { color: t.textMuted }]}>Theme</Text>
-                  <View style={styles.themeRow}>
+                  <Text style={[styles.inputLabel, { color: t.textMuted }]}>App Theme (10 Pro Variants)</Text>
+                  
+                  {/* HORIZONTAL THEME CAROUSEL */}
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.themeCarousel}>
                     {Object.keys(THEMES).map(themeKey => (
                       <TouchableOpacity key={themeKey} onPress={() => setCurrentTheme(themeKey)} style={[styles.themeBtn, currentTheme === themeKey && { borderColor: t.primary }]}>
                         <View style={[styles.themeColorBubble, { backgroundColor: THEMES[themeKey].bg }]} />
-                        <Text style={[styles.themeText, { color: currentTheme === themeKey ? t.primary : t.textMuted }]}>{THEMES[themeKey].name}</Text>
+                        <Text style={[styles.themeText, { color: currentTheme === themeKey ? t.primary : t.textMuted }]} numberOfLines={1}>{THEMES[themeKey].name}</Text>
                       </TouchableOpacity>
                     ))}
-                  </View>
+                  </ScrollView>
 
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: 16 }}>
                     <Text style={[styles.inputLabel, { color: t.textMuted }]}>Available Models</Text>
@@ -412,6 +423,7 @@ export default function AIChatApp() {
                       </ScrollView>
                     )}
                   </View>
+                  <Text style={{ color: t.textMuted, fontSize: 10, marginTop: 4 }}>* Long-press any model to view exact capabilities.</Text>
                   
                   <Text style={[styles.inputLabel, { color: t.textMuted, marginTop: 16 }]}>System Persona</Text>
                   <TextInput style={[styles.modalInput, { backgroundColor: t.card, color: t.text, borderColor: t.border }]} value={systemPrompt} onChangeText={setSystemPrompt} multiline />
@@ -465,18 +477,18 @@ export default function AIChatApp() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1 },
-  headerTitle: { fontSize: 20, fontWeight: '800', letterSpacing: -0.5 },
-  headerSubtitle: { fontSize: 12, marginLeft: 6, fontWeight: '600' },
-  statusDot: { width: 8, height: 8, borderRadius: 4 },
-  headerIcons: { flexDirection: 'row', alignItems: 'center' },
-  iconBtn: { marginLeft: 16 },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 14, borderBottomWidth: 1 },
+  headerTitle: { fontSize: 22, fontWeight: '800', letterSpacing: -0.5 },
+  headerSubtitle: { fontSize: 13, marginTop: 2, marginLeft: 6 },
+  statusDot: { width: 6, height: 6, borderRadius: 3, marginTop: 2 },
+  headerIcons: { flexDirection: 'row' },
+  iconBtn: { marginLeft: 18 },
   chatContainer: { padding: 16 },
-  messageWrapper: { marginVertical: 12, maxWidth: '92%' },
+  messageWrapper: { marginVertical: 12, maxWidth: '90%' },
   userWrapper: { alignSelf: 'flex-end' },
   aiWrapper: { alignSelf: 'flex-start' },
-  avatar: { width: 30, height: 30, borderRadius: 15, justifyContent: 'center', alignItems: 'center', marginHorizontal: 8, borderWidth: 1 },
-  messageBubble: { padding: 16, borderRadius: 20, borderWidth: 1 },
+  avatar: { width: 28, height: 28, borderRadius: 14, justifyContent: 'center', alignItems: 'center', marginHorizontal: 8, borderWidth: 1 },
+  messageBubble: { padding: 16, borderRadius: 20, borderWidth: 1, elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4 },
   messageText: { fontSize: 16, lineHeight: 24 },
   thinkingContainer: { padding: 12, borderRadius: 12, borderWidth: 1, marginBottom: 8, borderLeftWidth: 4 },
   actionBar: { flexDirection: 'row', marginTop: 8 },
@@ -491,24 +503,23 @@ const styles = StyleSheet.create({
   sendButton: { width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center', marginLeft: 10, marginBottom: 2 },
   stopButton: { backgroundColor: '#ef4444', width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center', marginLeft: 10, marginBottom: 2 },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
-  modalContent: { borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, borderWidth: 1, borderBottomWidth: 0, minHeight: '85%' },
-  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
+  modalContent: { borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, borderWidth: 1, borderBottomWidth: 0, minHeight: '80%' },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
   modalTitle: { fontSize: 24, fontWeight: '800' },
   tabBar: { flexDirection: 'row', borderBottomWidth: 1, marginBottom: 10 },
   tab: { flex: 1, paddingVertical: 12, alignItems: 'center' },
-  inputLabel: { fontSize: 12, fontWeight: 'bold', marginBottom: 8, marginTop: 10, textTransform: 'uppercase', letterSpacing: 0.5 },
+  inputLabel: { fontSize: 13, fontWeight: '600', marginBottom: 8, marginTop: 16, textTransform: 'uppercase', letterSpacing: 0.5 },
   modalInput: { borderRadius: 12, padding: 16, borderWidth: 1, fontSize: 15 },
-  themeRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 4 },
-  themeBtn: { alignItems: 'center', padding: 8, borderWidth: 2, borderColor: 'transparent', borderRadius: 12, flex: 1 },
+  themeCarousel: { flexDirection: 'row', gap: 10, paddingVertical: 4 },
+  themeBtn: { alignItems: 'center', padding: 10, borderWidth: 2, borderColor: 'transparent', borderRadius: 12, width: 85 },
   themeColorBubble: { width: 32, height: 32, borderRadius: 16, borderWidth: 1, borderColor: '#334155', marginBottom: 6 },
-  themeText: { fontSize: 11, fontWeight: '600' },
+  themeText: { fontSize: 11, fontWeight: '600', textAlign: 'center' },
   dropdownContainer: { borderRadius: 12, borderWidth: 1, overflow: 'hidden' },
   dropdownItem: { padding: 16, borderBottomWidth: 1 },
-  dropdownText: { fontSize: 14, fontWeight: '500' },
-  saveButton: { borderRadius: 14, padding: 16, alignItems: 'center', marginTop: 24, elevation: 4 },
+  dropdownText: { fontSize: 15, fontWeight: '500' },
+  saveButton: { borderRadius: 14, padding: 16, alignItems: 'center', marginTop: 32, elevation: 4 },
   saveButtonText: { color: '#ffffff', fontWeight: 'bold', fontSize: 16 },
-  ledgerCard: { padding: 20, borderRadius: 16, borderWidth: 1, alignItems: 'center', marginTop: 10 },
-  peekOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.4)' },
-  peekBox: { padding: 20, borderRadius: 16, width: '85%', borderWidth: 2, elevation: 10 },
+  peekOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.3)' },
+  peekBox: { padding: 20, borderRadius: 16, width: '80%', borderWidth: 2, elevation: 10 },
   peekTitle: { fontSize: 18, fontWeight: 'bold' }
 });

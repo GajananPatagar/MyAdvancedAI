@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "585615829430",
+    "firebase_url": "https://bestie-ai-app-default-rtdb.asia-southeast1.firebasedatabase.app",
+    "project_id": "bestie-ai-app",
+    "storage_bucket": "bestie-ai-app.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:585615829430:android:6cc621d08e649d4f703917",
+        "android_client_info": {
+          "package_name": "com.gajananpatagar.myadvancedai"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "585615829430-2o5pll5qkto2uoanqsdq5n59i22auhqb.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.gajananpatagar.myadvancedai",
+            "certificate_hash": "906e1a2cd6030a202533e0da30cc43f3558babea"
+          }
+        },
+        {
+          "client_id": "585615829430-r3r9okm0mfumb3dkri2o2megd8hpk2us.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC8N-M2ljiyHZWmFHG9EMvcZES0pPb6iec"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "585615829430-r3r9okm0mfumb3dkri2o2megd8hpk2us.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -1,16 +1,16 @@
 {
   "expo": {
-    "name": "Advanced AI",
+    "name": "Bestie AI",
     "slug": "MyAdvancedAI",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
-    "primaryColor": "#2563eb",
+    "primaryColor": "#db2777",
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",
-      "backgroundColor": "#000000"
+      "backgroundColor": "#fdf2f8"
     },
     "assetBundlePatterns": [
       "**/*"
@@ -22,9 +22,10 @@
     "android": {
       "package": "com.gajananpatagar.myadvancedai",
       "softwareKeyboardLayoutMode": "resize",
+      "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#000000"
+        "backgroundColor": "#fdf2f8"
       },
       "permissions": [
         "VIBRATE",
@@ -34,11 +35,9 @@
     "web": {
       "favicon": "./assets/icon.png"
     },
-    "extra": {
-      "eas": {
-        "projectId": "dc9de076-4437-46a1-9dbc-8af671c3d1ee"
-      }
-    },
-    "owner": "gaju.19"
+    "plugins": [
+      "@react-native-google-signin/google-signin",
+      "expo-image-picker"
+    ]
   }
 }

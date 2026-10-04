@@ -8,22 +8,20 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import * as DocumentPicker from 'expo-document-picker';
-import * as FileSystem from 'expo-file-system';
+// FIXED: Using legacy import for Expo SDK 54+ compatibility
+import * as FileSystem from 'expo-file-system/legacy';
 import * as Haptics from 'expo-haptics';
 import * as Sharing from 'expo-sharing';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import EventSource from 'react-native-sse';
 
-// --- ULTIMATE ENTERPRISE THEMING ENGINE ---
+// --- ENTERPRISE THEMING ENGINE ---
 const THEMES = {
-  // 5 PROFESSIONAL DARK THEMES
   OLED_Pure: { name: 'OLED Pure', mode: 'dark', bg: '#000000', card: '#0a0a0a', border: '#171717', text: '#ffffff', textMuted: '#737373', primary: '#3b82f6', userBg: '#1d4ed8', aiBg: '#0a0a0a', thinkBg: '#020617', thinkBorder: '#1e293b' },
   Midnight_Indigo: { name: 'Midnight', mode: 'dark', bg: '#0B0F19', card: '#111827', border: '#1f2937', text: '#f3f4f6', textMuted: '#9ca3af', primary: '#6366f1', userBg: '#4f46e5', aiBg: '#111827', thinkBg: '#1e1b4b', thinkBorder: '#3730a3' },
   Graphite_Pro: { name: 'Graphite', mode: 'dark', bg: '#121212', card: '#1e1e1e', border: '#2d2d2d', text: '#e4e4e7', textMuted: '#a1a1aa', primary: '#0ea5e9', userBg: '#0284c7', aiBg: '#1e1e1e', thinkBg: '#171717', thinkBorder: '#2d2d2d' },
   Obsidian_Amethyst: { name: 'Obsidian', mode: 'dark', bg: '#0d0221', card: '#140431', border: '#2a0a5e', text: '#fae8ff', textMuted: '#e879f9', primary: '#d946ef', userBg: '#c026d3', aiBg: '#140431', thinkBg: '#2e1065', thinkBorder: '#4c1d95' },
   Forest_Night: { name: 'Evergreen', mode: 'dark', bg: '#0f1712', card: '#152018', border: '#1f2f24', text: '#ecfdf5', textMuted: '#6ee7b7', primary: '#10b981', userBg: '#059669', aiBg: '#152018', thinkBg: '#064e3b', thinkBorder: '#065f46' },
-  
-  // 5 PROFESSIONAL LIGHT THEMES
   Clean_Snow: { name: 'Clean Snow', mode: 'light', bg: '#ffffff', card: '#f8fafc', border: '#e2e8f0', text: '#0f172a', textMuted: '#64748b', primary: '#2563eb', userBg: '#3b82f6', aiBg: '#f8fafc', thinkBg: '#eff6ff', thinkBorder: '#bfdbfe' },
   Corporate_Slate: { name: 'Corporate', mode: 'light', bg: '#f1f5f9', card: '#ffffff', border: '#cbd5e1', text: '#020617', textMuted: '#475569', primary: '#0f172a', userBg: '#334155', aiBg: '#ffffff', thinkBg: '#e2e8f0', thinkBorder: '#94a3b8' },
   Ivory_Minimal: { name: 'Ivory Sepia', mode: 'light', bg: '#fdfbf7', card: '#ffffff', border: '#eaddcf', text: '#431407', textMuted: '#78350f', primary: '#d97706', userBg: '#b45309', aiBg: '#ffffff', thinkBg: '#fef3c7', thinkBorder: '#fde68a' },
@@ -37,13 +35,14 @@ export default function AIChatApp() {
   // --- SETTINGS & BILLING STATE ---
   const [apiKey, setApiKey] = useState('xpl_06e58639becf90ade37da17d2014fcaf0c1236c6');
   const [baseUrl, setBaseUrl] = useState('https://api.experientiallabs.ai/v1/chat/completions');
-  const [modelName, setModelName] = useState('qwen3.8-27b');
+  
+  // FIXED: Default to the free GLM model from the platform
+  const [modelName, setModelName] = useState('glm-5.3-flash-abliterated'); 
   const [systemPrompt, setSystemPrompt] = useState('You are a highly advanced AI assistant.');
   const [currentTheme, setCurrentTheme] = useState('Midnight_Indigo');
   const [isAdvancedThinking, setIsAdvancedThinking] = useState(false);
   const t = THEMES[currentTheme] || THEMES.Midnight_Indigo;
   
-  // Ledger State
   const [totalTokensUsed, setTotalTokensUsed] = useState(0);
   const [estimatedCost, setEstimatedCost] = useState(0);
   const [creditHistory, setCreditHistory] = useState([]);
@@ -54,8 +53,7 @@ export default function AIChatApp() {
   const [isFetchingModels, setIsFetchingModels] = useState(false);
   const [peekModel, setPeekModel] = useState(null);
 
-  // --- CHAT STATE ---
-  const [messages, setMessages] = useState([{ id: 'init-1', role: 'assistant', text: 'System initialized. 10 Premium Themes loaded. Free models automatically detected. How can I assist you today?' }]);
+  const [messages, setMessages] = useState([{ id: 'init-1', role: 'assistant', text: 'System initialized. 10 Premium Themes loaded. Ready to accept images for any model.' }]);
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [replyingTo, setReplyingTo] = useState(null);
@@ -65,7 +63,6 @@ export default function AIChatApp() {
   const eventSourceRef = useRef(null);
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
-  // --- MEMORY & LEDGER ---
   useEffect(() => {
     loadSettings();
     Animated.timing(fadeAnim, { toValue: 1, duration: 800, useNativeDriver: true }).start();
@@ -100,7 +97,6 @@ export default function AIChatApp() {
   const logTransaction = async (tokens, cost) => {
     const newTokens = totalTokensUsed + tokens;
     const newCost = estimatedCost + cost;
-    // Log showing $0.00 explicitly if free
     const newRecord = { id: Date.now().toString(), date: new Date().toLocaleString(), model: modelName, tokens, cost };
     const newHistory = [newRecord, ...creditHistory].slice(0, 50); 
     
@@ -115,19 +111,16 @@ export default function AIChatApp() {
 
   const triggerHaptic = () => { if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); };
 
-  // --- API LOGIC (WITH FREE MODEL DETECTION) ---
   const getModelPricePer1M = (id) => {
     const lowerId = id.toLowerCase();
+    // Catch Experiential Labs Free Models
+    if (lowerId.includes('free') || lowerId.includes('local') || lowerId.includes('glm-5.3-flash-abliterated') || lowerId.includes('jev')) return 0;
     
-    // FREE MODELS DETECTION
-    if (lowerId.includes('free') || lowerId.includes('local') || lowerId === 'qwen3.8-27b') return 0;
-    
-    // PAID MODELS
-    if (lowerId.includes('gpt-4') || lowerId.includes('claude-3-opus') || lowerId.includes('o1')) return 15.00;
+    if (lowerId.includes('gpt-6') || lowerId.includes('gpt-4') || lowerId.includes('claude-3-opus') || lowerId.includes('o1')) return 15.00;
     if (lowerId.includes('gpt-4o') || lowerId.includes('claude-3-sonnet') || lowerId.includes('gemini-1.5-pro')) return 3.00;
     if (lowerId.includes('deepseek') || lowerId.includes('qwen') || lowerId.includes('llama') || lowerId.includes('gemini-1.5-flash') || lowerId.includes('haiku')) return 0.15;
     
-    return 0.50; // Default generic cost
+    return 0.50; 
   };
 
   const fetchModels = async () => {
@@ -145,10 +138,17 @@ export default function AIChatApp() {
             owner: m.owned_by || 'Unknown API',
             costPer1M: rawCost,
             costDisplay: rawCost === 0 ? 'FREE' : `$${rawCost.toFixed(2)}/1M`,
-            type: m.id.includes('vl') || m.id.includes('vision') ? 'Multimodal (Vision)' : 'Text/Reasoning'
+            type: m.id.includes('vl') || m.id.includes('vision') ? 'Multimodal (Vision)' : 'Universal / Text'
           };
         });
+        
         setAvailableModels(enrichedModels);
+        
+        // Auto-select free model if current isn't in list or is generic
+        const freeModel = enrichedModels.find(m => m.costPer1M === 0);
+        if (freeModel && !enrichedModels.find(m => m.id === modelName)) {
+           setModelName(freeModel.id);
+        }
       }
     } catch (err) {
       Alert.alert('Fetch Error', 'Ensure your API key and Base URL are valid.');
@@ -174,7 +174,7 @@ export default function AIChatApp() {
     if (replyingTo) finalPrompt = `[Replying to: "${replyingTo.text}"]\n${finalPrompt}`;
     if (attachedFile && attachedFile.type === 'text') finalPrompt += `\n\n--- Attached File: ${attachedFile.name} ---\n${attachedFile.content}`;
 
-    const displayPrompt = finalPrompt + (attachedFile && attachedFile.type !== 'text' ? `\n\n📎 [Attached: ${attachedFile.name}]` : '');
+    const displayPrompt = finalPrompt + (attachedFile && attachedFile.type !== 'text' ? `\n\n📎 [Attached Image/Doc: ${attachedFile.name}]` : '');
 
     const userMessage = { id: Date.now().toString(), role: 'user', text: displayPrompt, attachedFile };
     const aiPlaceholder = { id: (Date.now() + 1).toString(), role: 'assistant', text: '' }; 
@@ -195,8 +195,15 @@ export default function AIChatApp() {
     const apiPayload = [
       { role: 'system', content: currentSystemPrompt },
       ...[...messages, userMessage].reverse().map((msg) => {
+        // FIXED: Forcing ALL models to accept the Vision Payload format if an image is attached
         if (msg.role === 'user' && msg.attachedFile && msg.attachedFile.type !== 'text') {
-           return { role: 'user', content: [{ type: 'text', text: msg.text }, { type: 'image_url', image_url: { url: `data:${msg.attachedFile.mime};base64,${msg.attachedFile.content}` } }] };
+           return { 
+             role: 'user', 
+             content: [
+               { type: 'text', text: msg.text || "Analyze this image." }, 
+               { type: 'image_url', image_url: { url: `data:${msg.attachedFile.mime};base64,${msg.attachedFile.content}` } }
+             ] 
+           };
         }
         return { role: msg.role === 'assistant' ? 'assistant' : 'user', content: msg.text };
       })
@@ -212,17 +219,19 @@ export default function AIChatApp() {
 
     eventSourceRef.current = es;
 
+    const processSuccessfulCompletion = () => {
+      es.close();
+      setIsLoading(false);
+      triggerHaptic();
+      const estTokens = Math.floor(charCount / 4) + 50; 
+      const pricePer1M = getModelPricePer1M(modelName);
+      const calcCost = pricePer1M === 0 ? 0 : (estTokens / 1000000) * pricePer1M;
+      logTransaction(estTokens, calcCost);
+    };
+
     es.addEventListener('message', (event) => {
       if (event.data === '[DONE]') {
-        es.close();
-        setIsLoading(false);
-        triggerHaptic();
-        
-        // Exact Ledger Calculation
-        const estTokens = Math.floor(charCount / 4) + 50; 
-        const pricePer1M = getModelPricePer1M(modelName);
-        const calcCost = pricePer1M === 0 ? 0 : (estTokens / 1000000) * pricePer1M;
-        logTransaction(estTokens, calcCost);
+        processSuccessfulCompletion();
         return;
       }
       try {
@@ -240,17 +249,22 @@ export default function AIChatApp() {
     });
 
     es.addEventListener('error', (event) => {
-      es.close();
-      setIsLoading(false);
-      setMessages((prev) => {
-        const updated = [...prev];
-        updated[0] = { ...updated[0], text: updated[0].text + "\n⚠️ Stream interrupted. Check API connection." };
-        return updated;
-      });
+      // FIXED: Sometimes APIs close connection abruptly instead of sending [DONE]. 
+      // If we received text, assume it finished successfully. If 0 characters, it's a real crash.
+      if (charCount > 0) {
+        processSuccessfulCompletion();
+      } else {
+        es.close();
+        setIsLoading(false);
+        setMessages((prev) => {
+          const updated = [...prev];
+          updated[0] = { ...updated[0], text: updated[0].text + "\n⚠️ Request Rejected. The selected model might not support image/binary payloads or the API key is restricted." };
+          return updated;
+        });
+      }
     });
   };
 
-  // --- ACTIONS ---
   const copyText = async (text) => { await Clipboard.setStringAsync(text); triggerHaptic(); Alert.alert('Copied', 'Saved to clipboard'); };
   const deleteMessage = (id) => { triggerHaptic(); setMessages(prev => prev.filter(msg => msg.id !== id)); };
   const editUserMessage = (msg) => { triggerHaptic(); setInputText(msg.text); deleteMessage(msg.id); };
@@ -262,16 +276,19 @@ export default function AIChatApp() {
       if (!result.canceled && result.assets && result.assets.length > 0) {
         const file = result.assets[0];
         if (file.size > 10 * 1024 * 1024) return Alert.alert('Error', 'File must be under 10MB.');
+        
         const mime = file.mimeType || '';
         const isText = mime.startsWith('text/') || mime.includes('json') || mime.includes('csv');
+        
+        // FIXED: Using Legacy FileSystem method for SDK 54+
         const content = await FileSystem.readAsStringAsync(file.uri, { encoding: isText ? FileSystem.EncodingType.UTF8 : FileSystem.EncodingType.Base64 });
+        
         setAttachedFile({ name: file.name, type: isText ? 'text' : mime.startsWith('image/') ? 'image' : 'document', mime, content });
         triggerHaptic();
       }
     } catch (err) { Alert.alert('Error', err.message); }
   };
 
-  // --- MESSAGE RENDERER WITH <THINK> PARSER ---
   const renderMessageText = (text, isUser) => {
     if (isUser) return <Text style={[styles.messageText, { color: '#ffffff' }]} selectable={true}>{text}</Text>;
 
@@ -322,7 +339,6 @@ export default function AIChatApp() {
     <KeyboardAvoidingView style={[styles.container, { backgroundColor: t.bg }]} behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 24}>
       <View style={{ flex: 1, paddingTop: insets.top }}>
         
-        {/* --- DYNAMIC HEADER WITH TOGGLE --- */}
         <View style={[styles.header, { borderBottomColor: t.border, backgroundColor: t.bg }]}>
           <View style={{ flex: 1 }}>
             <Text style={[styles.headerTitle, { color: t.text }]}>Advanced AI</Text>
@@ -331,50 +347,37 @@ export default function AIChatApp() {
               <Text style={[styles.headerSubtitle, { color: t.textMuted }]} numberOfLines={1}>{modelName}</Text>
             </TouchableOpacity>
           </View>
-          
           <View style={{ alignItems: 'center', flexDirection: 'row' }}>
             <View style={{ alignItems: 'center', marginRight: 12 }}>
               <Text style={{ color: isAdvancedThinking ? t.primary : t.textMuted, fontSize: 10, fontWeight: 'bold', marginBottom: 4 }}>
                 {isAdvancedThinking ? 'THINKING 🧠' : 'FLASH ⚡️'}
               </Text>
-              <Switch 
-                value={isAdvancedThinking} 
-                onValueChange={(val) => { setIsAdvancedThinking(val); triggerHaptic(); }} 
-                trackColor={{ false: t.border, true: t.primary }}
-                thumbColor={"#fff"}
-                style={{ transform: [{ scaleX: 0.8 }, { scaleY: 0.8 }] }}
-              />
+              <Switch value={isAdvancedThinking} onValueChange={(val) => { setIsAdvancedThinking(val); triggerHaptic(); }} trackColor={{ false: t.border, true: t.primary }} thumbColor={"#fff"} style={{ transform: [{ scaleX: 0.8 }, { scaleY: 0.8 }] }} />
             </View>
             <TouchableOpacity onPress={clearChat} style={styles.iconBtn}><Ionicons name="trash-outline" size={22} color={t.textMuted} /></TouchableOpacity>
             <TouchableOpacity onPress={() => setSettingsVisible(true)} style={styles.iconBtn}><Ionicons name="options" size={24} color={t.textMuted} /></TouchableOpacity>
           </View>
         </View>
 
-        {/* Chat Feed */}
-        <FlatList
-          ref={flatListRef}
-          data={messages}
-          keyExtractor={(item) => item.id}
-          renderItem={renderMessage}
-          inverted
-          contentContainerStyle={styles.chatContainer}
-          keyboardDismissMode="on-drag"
-        />
+        <FlatList ref={flatListRef} data={messages} keyExtractor={(item) => item.id} renderItem={renderMessage} inverted contentContainerStyle={styles.chatContainer} keyboardDismissMode="on-drag" />
 
-        {/* Attachment / Reply Banners */}
         {attachedFile && (
           <View style={[styles.contextBanner, { backgroundColor: t.card, borderTopColor: t.border }]}>
             <Ionicons name="document-text" size={16} color={t.primary} />
-            <Text style={[styles.contextBannerText, { color: t.text }]} numberOfLines={1}>{attachedFile.name}</Text>
+            <Text style={[styles.contextBannerText, { color: t.text }]} numberOfLines={1}>Attached: {attachedFile.name}</Text>
             <TouchableOpacity onPress={() => setAttachedFile(null)}><Ionicons name="close-circle" size={20} color={t.textMuted} /></TouchableOpacity>
           </View>
         )}
+        {replyingTo && (
+          <View style={[styles.contextBanner, { backgroundColor: t.card, borderTopColor: t.border }]}>
+            <Ionicons name="arrow-undo" size={16} color="#3b82f6" />
+            <Text style={[styles.contextBannerText, { color: t.text }]} numberOfLines={1}>Replying: {replyingTo.text}</Text>
+            <TouchableOpacity onPress={() => setReplyingTo(null)}><Ionicons name="close-circle" size={20} color={t.textMuted} /></TouchableOpacity>
+          </View>
+        )}
 
-        {/* Input Area */}
         <View style={[styles.inputContainer, { backgroundColor: t.bg, borderTopColor: t.border }]}>
-          <TouchableOpacity style={styles.attachButton} onPress={pickDocument}>
-            <Ionicons name="add-circle" size={32} color={t.textMuted} />
-          </TouchableOpacity>
+          <TouchableOpacity style={styles.attachButton} onPress={pickDocument}><Ionicons name="add-circle" size={32} color={t.textMuted} /></TouchableOpacity>
           <View style={[styles.inputWrapper, { backgroundColor: t.card, borderColor: t.border }]}>
             <TextInput style={[styles.input, { color: t.text }]} placeholder="Message AI..." placeholderTextColor={t.textMuted} value={inputText} onChangeText={setInputText} multiline />
           </View>
@@ -387,17 +390,13 @@ export default function AIChatApp() {
           )}
         </View>
 
-        {/* --- SETTINGS & BILLING MODAL --- */}
         <Modal visible={settingsVisible} animationType="slide" transparent>
           <View style={styles.modalOverlay}>
             <View style={[styles.modalContent, { backgroundColor: t.bg, borderColor: t.border }]}>
-              
               <View style={styles.modalHeader}>
                 <Text style={[styles.modalTitle, { color: t.text }]}>Settings</Text>
                 <TouchableOpacity onPress={() => setSettingsVisible(false)}><Ionicons name="close" size={28} color={t.textMuted} /></TouchableOpacity>
               </View>
-
-              {/* Tabs */}
               <View style={[styles.tabBar, { borderBottomColor: t.border }]}>
                 <TouchableOpacity onPress={() => setActiveTab('models')} style={[styles.tab, activeTab === 'models' && { borderBottomColor: t.primary, borderBottomWidth: 2 }]}><Text style={{ color: activeTab === 'models' ? t.primary : t.textMuted, fontWeight: 'bold' }}>Models & Config</Text></TouchableOpacity>
                 <TouchableOpacity onPress={() => setActiveTab('billing')} style={[styles.tab, activeTab === 'billing' && { borderBottomColor: t.primary, borderBottomWidth: 2 }]}><Text style={{ color: activeTab === 'billing' ? t.primary : t.textMuted, fontWeight: 'bold' }}>Ledger & Billing</Text></TouchableOpacity>
@@ -406,8 +405,6 @@ export default function AIChatApp() {
               {activeTab === 'models' ? (
                 <ScrollView style={{ marginTop: 10 }} showsVerticalScrollIndicator={false}>
                   <Text style={[styles.inputLabel, { color: t.textMuted }]}>App Theme (10 Pro Variants)</Text>
-                  
-                  {/* HORIZONTAL THEME CAROUSEL */}
                   <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.themeCarousel}>
                     {Object.keys(THEMES).map(themeKey => (
                       <TouchableOpacity key={themeKey} onPress={() => setCurrentTheme(themeKey)} style={[styles.themeBtn, currentTheme === themeKey && { borderColor: t.primary }]}>
@@ -469,7 +466,6 @@ export default function AIChatApp() {
             </View>
           </View>
           
-          {/* Peek Info */}
           {peekModel && (
             <View style={styles.peekOverlay}>
               <View style={[styles.peekBox, { backgroundColor: t.card, borderColor: t.primary }]}>

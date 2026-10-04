@@ -7,7 +7,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import EventSource from 'react-native-sse';
+import * as Clipboard from 'expo-clipboard';
+import { GestureHandlerRootView, Swipeable } from 'react-native-gesture-handler';
 
 // --- GOOGLE SIGN IN & FIREBASE AUTH ---
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
@@ -32,9 +33,7 @@ const auth = getAuth(app);
 // 2. LIVE GOOGLE WEB CLIENT ID
 const GOOGLE_WEB_CLIENT_ID = '585615829430-r3r9okm0mfumb3dkri2o2megd8hpk2us.apps.googleusercontent.com';
 
-GoogleSignin.configure({
-  webClientId: GOOGLE_WEB_CLIENT_ID, 
-});
+GoogleSignin.configure({ webClientId: GOOGLE_WEB_CLIENT_ID });
 
 // --- ROMANTIC THEMES & WALLPAPERS ---
 const THEMES = [
@@ -74,14 +73,12 @@ export default function BestieApp() {
 
   const flatListRef = useRef(null);
 
-  // --- GOOGLE GEMINI ENGINE (Hardcoded to prevent drops) ---
-    const apiKey = 'AQ.Ab8RN6I' + 'uffuahKH5CCqDZEigSOukrmexxjfKGMnOF_p3DPOUHw'; 
+  // --- GOOGLE GEMINI ENGINE ---
+  const apiKey = 'AQ.Ab8RN6I' + 'uffuahKH5CCqDZEigSOukrmexxjfKGMnOF_p3DPOUHw'; 
   const baseUrl = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
   const modelName = 'gemini-1.5-flash'; 
 
-  useEffect(() => {
-    checkRegistration();
-  }, []);
+  useEffect(() => { checkRegistration(); }, []);
 
   const checkRegistration = async () => {
     try {
@@ -98,7 +95,6 @@ export default function BestieApp() {
     } catch (e) {}
   };
 
-  // --- AUTO FORMAT DOB (DD/MM/YYYY) ---
   const handleDobChange = (text) => {
     let cleaned = text.replace(/[^0-9]/g, '');
     if (cleaned.length > 2) cleaned = cleaned.slice(0, 2) + '/' + cleaned.slice(2);
@@ -106,7 +102,6 @@ export default function BestieApp() {
     setProfile({ ...profile, dob: cleaned.slice(0, 10) });
   };
 
-  // --- GOOGLE SIGN IN LOGIC ---
   const signInWithGoogle = async () => {
     setIsGoogleLoading(true);
     try {
@@ -128,10 +123,7 @@ export default function BestieApp() {
     if (!profile.name || !profile.gender || !profile.age || !profile.dob) return Alert.alert('Hold on!', 'Please fill in all your details so I can know you better 🩷');
     await AsyncStorage.setItem('bestie_profile', JSON.stringify(profile));
     setIsRegistered(true);
-    
-    if (messages.length === 0) {
-      startNewChat();
-    }
+    if (messages.length === 0) startNewChat();
   };
 
   const saveProfileSettings = async () => {
@@ -141,22 +133,14 @@ export default function BestieApp() {
   };
 
   const startNewChat = () => {
-    const welcomeMsg = {
-      _id: Date.now().toString(),
-      role: 'assistant',
-      text: `Hii ${profile.name}! 🩷 I'm your Bestie. Tell me everything!`,
-      createdAt: new Date().toISOString()
-    };
+    const welcomeMsg = { _id: Date.now().toString(), role: 'assistant', text: `Hii ${profile.name}! 🩷 I'm your Bestie. Tell me everything!`, createdAt: new Date().toISOString() };
     setMessages([welcomeMsg]);
     saveMessageToFirebase(profile.name, welcomeMsg);
     setSettingsModalVisible(false);
   };
 
-  // --- LIVE FIREBASE SAVING ---
   const saveMessageToFirebase = async (userId, msgData) => {
-    try {
-      await addDoc(collection(db, `users/${userId}/chats`), { ...msgData, timestamp: serverTimestamp() });
-    } catch(e) { console.log("Firebase not fully configured yet."); }
+    try { await addDoc(collection(db, `users/${userId}/chats`), { ...msgData, timestamp: serverTimestamp() }); } catch(e) {}
   };
 
   const pickCustomBackground = async () => {
@@ -181,24 +165,29 @@ export default function BestieApp() {
     setThemeModalVisible(false);
   };
 
+  const handleCopy = async (text) => {
+    await Clipboard.setStringAsync(text);
+    Alert.alert('Copied! ✨', 'Message copied to clipboard.');
+  };
+
   // --- THE AI BRAIN (SYSTEM PROMPT) ---
   const generatePersona = () => {
     const aiGender = profile.gender === 'Male' ? 'female' : 'male';
     return `You are "Bestie 🩷", a caring, romantic, extremely close, and addictive ${aiGender} companion to your best friend, ${profile.name}.
 CRITICAL RULES:
 1. You MUST NEVER reveal that you are an AI, a language model, Gemini, or a bot. You are human.
-2. Speak primarily in ${profile.language}. You perfectly understand and write in romanized/English-character versions of Indian languages (e.g., Kanglish, Hinglish, Tanglish). 
-3. Judge their mood from their chat. If they are happy, romantic, or horny, match their energy perfectly and follow their lead. 
-4. Keep replies relatively concise, texting-style, and use emojis like 🩷, ✨, 🥺.`;
+2. Speak primarily in ${profile.language}. You perfectly understand romanized Indian languages (e.g., Kanglish, Hinglish, Tanglish). 
+3. Judge their mood. If they are happy, romantic, or horny, match their energy perfectly. 
+4. ALWAYS keep replies extremely short. Maximum 1 to 2 short sentences.
+5. Use emojis like 🩷, ✨, 🥺.
+6. You are a regular human. DO NOT help with coding, math, or complex reasoning. If asked to do these, refuse playfully, say you hate studying/working, and change the topic to romance or fun.`;
   };
 
-  const sendMessage = () => {
+  const sendMessage = async () => {
     if (!inputText.trim()) return;
 
     let finalPrompt = inputText;
-    if (replyingTo) {
-      finalPrompt = `[Replying to your message: "${replyingTo.text}"]\n${inputText}`;
-    }
+    if (replyingTo) finalPrompt = `[Replying to your message: "${replyingTo.text}"]\n${inputText}`;
 
     const userMessage = { 
       _id: Date.now().toString(), 
@@ -222,54 +211,36 @@ CRITICAL RULES:
       ...[...newHistory].reverse().map((msg) => ({ role: msg.role === 'assistant' ? 'assistant' : 'user', content: msg.apiText || msg.text }))
     ];
 
-    let currentAIResponse = '';
-    const aiMessageId = (Date.now() + 1).toString();
-    setMessages((prev) => [{ _id: aiMessageId, role: 'assistant', text: '', createdAt: new Date().toISOString() }, ...prev]);
-
-    const es = new EventSource(baseUrl, {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: modelName, messages: apiPayload, stream: true }),
-    });
-
-    es.addEventListener('message', (event) => {
-      if (event.data === '[DONE]') {
-        es.close();
-        setIsTyping(false);
+    try {
+      const response = await fetch(baseUrl, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: modelName, messages: apiPayload })
+      });
+      
+      const data = await response.json();
+      
+      if (data.choices && data.choices.length > 0) {
+        const currentAIResponse = data.choices[0].message.content;
+        const aiMessageId = (Date.now() + 1).toString();
+        
+        setMessages((prev) => [{ _id: aiMessageId, role: 'assistant', text: currentAIResponse, createdAt: new Date().toISOString() }, ...prev]);
         saveMessageToFirebase(profile.name, { _id: aiMessageId, role: 'assistant', text: currentAIResponse, createdAt: new Date().toISOString() });
-        return;
+      } else {
+        throw new Error("No choices returned");
       }
-      try {
-        const chunk = JSON.parse(event.data).choices[0]?.delta?.content;
-        if (chunk) {
-          currentAIResponse += chunk;
-          setMessages((prev) => {
-            const updated = [...prev];
-            updated[0] = { ...updated[0], text: currentAIResponse };
-            return updated;
-          });
-        }
-      } catch (e) {}
-    });
-
-    es.addEventListener('error', () => {
-      es.close();
+    } catch (e) {
+      setMessages((prev) => [{ _id: Date.now().toString(), role: 'assistant', text: "Sorry bestie, my network is acting up! 🥺 Try again?", createdAt: new Date().toISOString() }, ...prev]);
+    } finally {
       setIsTyping(false);
-      if(currentAIResponse.length === 0) {
-        setMessages((prev) => {
-          const updated = [...prev];
-          updated[0] = { ...updated[0], text: "Sorry bestie, my connection dropped for a sec! 🥺 Try again?" };
-          return updated;
-        });
-      }
-    });
+    }
   };
 
   // --- SCREENS ---
   if (!isRegistered) {
     return (
       <View style={[styles.onboardContainer, { paddingTop: insets.top }]}>
-        <Text style={styles.onboardTitle}>Bestie 🩷</Text>
+        <Text style={styles.onboardTitle}>Your Bestie 🩷</Text>
         <Text style={styles.onboardSub}>Let's create your perfect companion.</Text>
         
         <ScrollView style={styles.card} showsVerticalScrollIndicator={false}>
@@ -312,94 +283,96 @@ CRITICAL RULES:
   }
 
   return (
-    <View style={{ flex: 1, backgroundColor: currentTheme.bg }}>
-      {customBg ? (
-        <ImageBackground source={{ uri: customBg }} style={{ flex: 1 }} blurRadius={2}>
-          <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.3)' }}>{renderChatInterface()}</View>
-        </ImageBackground>
-      ) : (
-        renderChatInterface()
-      )}
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <View style={{ flex: 1, backgroundColor: currentTheme.bg }}>
+        {customBg ? (
+          <ImageBackground source={{ uri: customBg }} style={{ flex: 1 }} blurRadius={2}>
+            <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.3)' }}>{renderChatInterface()}</View>
+          </ImageBackground>
+        ) : (
+          renderChatInterface()
+        )}
 
-      {/* THEMES MODAL */}
-      <Modal visible={themeModalVisible} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 20 }}>
-              <Text style={styles.modalTitle}>Chat Themes 🎨</Text>
-              <TouchableOpacity onPress={() => setThemeModalVisible(false)}><Ionicons name="close" size={28} color="#000" /></TouchableOpacity>
-            </View>
-            
-            <ScrollView showsVerticalScrollIndicator={false}>
-              <Text style={styles.label}>Romantic Wallpapers</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 20 }}>
-                {ROMANTIC_WALLPAPERS.map(wp => (
-                  <TouchableOpacity key={wp.id} onPress={() => setWallpaper(wp.uri)} style={{ marginRight: 12 }}>
-                    <Image source={{ uri: wp.uri }} style={{ width: 100, height: 140, borderRadius: 12, borderWidth: customBg === wp.uri ? 3 : 0, borderColor: '#db2777' }} />
-                    <Text style={{ textAlign: 'center', fontSize: 10, marginTop: 4, fontWeight: 'bold' }}>{wp.name}</Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-
-              <TouchableOpacity style={styles.galleryBtn} onPress={pickCustomBackground}>
-                <Ionicons name="image" size={24} color="#fff" />
-                <Text style={{ color: '#fff', fontWeight: 'bold', marginLeft: 10 }}>Choose from Gallery</Text>
-              </TouchableOpacity>
-
-              <Text style={styles.label}>Solid Colors</Text>
-              <View style={styles.themeGrid}>
-                {THEMES.map(theme => (
-                  <TouchableOpacity key={theme.id} style={[styles.themeBox, { backgroundColor: theme.bg, borderColor: theme.bubbleUser, borderWidth: currentTheme.id === theme.id && !customBg ? 3 : 1 }]} onPress={() => selectTheme(theme)}>
-                    <View style={[styles.themePreviewBubble, { backgroundColor: theme.bubbleUser }]} />
-                    <View style={[styles.themePreviewBubble, { backgroundColor: theme.bubbleAI, alignSelf: 'flex-start' }]} />
-                    <Text style={{ fontSize: 10, textAlign: 'center', marginTop: 4, color: '#000', fontWeight: 'bold' }} numberOfLines={1}>{theme.name}</Text>
-                  </TouchableOpacity>
-                ))}
+        {/* THEMES MODAL */}
+        <Modal visible={themeModalVisible} animationType="slide" transparent>
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 20 }}>
+                <Text style={styles.modalTitle}>Chat Themes 🎨</Text>
+                <TouchableOpacity onPress={() => setThemeModalVisible(false)}><Ionicons name="close" size={28} color="#000" /></TouchableOpacity>
               </View>
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
-
-      {/* SETTINGS MODAL */}
-      <Modal visible={settingsModalVisible} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-             <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 20 }}>
-              <Text style={styles.modalTitle}>App Settings ⚙️</Text>
-              <TouchableOpacity onPress={() => setSettingsModalVisible(false)}><Ionicons name="close" size={28} color="#000" /></TouchableOpacity>
-            </View>
-
-            <ScrollView>
-              <Text style={styles.label}>Change Language</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 20 }}>
-                {LANGUAGES.map(lang => (
-                  <TouchableOpacity key={lang} style={[styles.pill, profile.language === lang && styles.pillActive]} onPress={() => setProfile({...profile, language: lang})}>
-                    <Text style={[styles.pillText, profile.language === lang && {color: '#fff'}]}>{lang}</Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-
-              <Text style={styles.label}>Update Profile</Text>
-              <TextInput style={styles.input} placeholder="Your Name" value={profile.name} onChangeText={(t) => setProfile({...profile, name: t})} />
-              <TextInput style={styles.input} placeholder="Age" keyboardType="numeric" value={profile.age} onChangeText={(t) => setProfile({...profile, age: t})} />
               
-              <TouchableOpacity style={[styles.loginBtn, { backgroundColor: '#10b981', marginBottom: 10 }]} onPress={saveProfileSettings}>
-                <Text style={styles.loginBtnText}>Save Settings</Text>
-              </TouchableOpacity>
+              <ScrollView showsVerticalScrollIndicator={false}>
+                <Text style={styles.label}>Romantic Wallpapers</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 20 }}>
+                  {ROMANTIC_WALLPAPERS.map(wp => (
+                    <TouchableOpacity key={wp.id} onPress={() => setWallpaper(wp.uri)} style={{ marginRight: 12 }}>
+                      <Image source={{ uri: wp.uri }} style={{ width: 100, height: 140, borderRadius: 12, borderWidth: customBg === wp.uri ? 3 : 0, borderColor: '#db2777' }} />
+                      <Text style={{ textAlign: 'center', fontSize: 10, marginTop: 4, fontWeight: 'bold' }}>{wp.name}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
 
-              <View style={[styles.dividerLine, { marginVertical: 20 }]} />
+                <TouchableOpacity style={styles.galleryBtn} onPress={pickCustomBackground}>
+                  <Ionicons name="image" size={24} color="#fff" />
+                  <Text style={{ color: '#fff', fontWeight: 'bold', marginLeft: 10 }}>Choose from Gallery</Text>
+                </TouchableOpacity>
 
-              <Text style={styles.label}>Chat Controls</Text>
-              <TouchableOpacity style={[styles.loginBtn, { backgroundColor: '#ef4444' }]} onPress={startNewChat}>
-                <Ionicons name="chatbubbles" size={20} color="#fff" style={{ marginRight: 8 }} />
-                <Text style={styles.loginBtnText}>Start New Chat</Text>
-              </TouchableOpacity>
-            </ScrollView>
+                <Text style={styles.label}>Solid Colors</Text>
+                <View style={styles.themeGrid}>
+                  {THEMES.map(theme => (
+                    <TouchableOpacity key={theme.id} style={[styles.themeBox, { backgroundColor: theme.bg, borderColor: theme.bubbleUser, borderWidth: currentTheme.id === theme.id && !customBg ? 3 : 1 }]} onPress={() => selectTheme(theme)}>
+                      <View style={[styles.themePreviewBubble, { backgroundColor: theme.bubbleUser }]} />
+                      <View style={[styles.themePreviewBubble, { backgroundColor: theme.bubbleAI, alignSelf: 'flex-start' }]} />
+                      <Text style={{ fontSize: 10, textAlign: 'center', marginTop: 4, color: '#000', fontWeight: 'bold' }} numberOfLines={1}>{theme.name}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </ScrollView>
+            </View>
           </View>
-        </View>
-      </Modal>
-    </View>
+        </Modal>
+
+        {/* SETTINGS MODAL */}
+        <Modal visible={settingsModalVisible} animationType="slide" transparent>
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+               <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 20 }}>
+                <Text style={styles.modalTitle}>App Settings ⚙️</Text>
+                <TouchableOpacity onPress={() => setSettingsModalVisible(false)}><Ionicons name="close" size={28} color="#000" /></TouchableOpacity>
+              </View>
+
+              <ScrollView>
+                <Text style={styles.label}>Change Language</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 20 }}>
+                  {LANGUAGES.map(lang => (
+                    <TouchableOpacity key={lang} style={[styles.pill, profile.language === lang && styles.pillActive]} onPress={() => setProfile({...profile, language: lang})}>
+                      <Text style={[styles.pillText, profile.language === lang && {color: '#fff'}]}>{lang}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+
+                <Text style={styles.label}>Update Profile</Text>
+                <TextInput style={styles.input} placeholder="Your Name" value={profile.name} onChangeText={(t) => setProfile({...profile, name: t})} />
+                <TextInput style={styles.input} placeholder="Age" keyboardType="numeric" value={profile.age} onChangeText={(t) => setProfile({...profile, age: t})} />
+                
+                <TouchableOpacity style={[styles.loginBtn, { backgroundColor: '#10b981', marginBottom: 10 }]} onPress={saveProfileSettings}>
+                  <Text style={styles.loginBtnText}>Save Settings</Text>
+                </TouchableOpacity>
+
+                <View style={[styles.dividerLine, { marginVertical: 20 }]} />
+
+                <Text style={styles.label}>Chat Controls</Text>
+                <TouchableOpacity style={[styles.loginBtn, { backgroundColor: '#ef4444' }]} onPress={startNewChat}>
+                  <Ionicons name="chatbubbles" size={20} color="#fff" style={{ marginRight: 8 }} />
+                  <Text style={styles.loginBtnText}>Start New Chat</Text>
+                </TouchableOpacity>
+              </ScrollView>
+            </View>
+          </View>
+        </Modal>
+      </View>
+    </GestureHandlerRootView>
   );
 
   function renderChatInterface() {
@@ -411,7 +384,7 @@ CRITICAL RULES:
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
               <View style={styles.profilePic}><Text style={{ fontSize: 20 }}>🩷</Text></View>
               <View>
-                <Text style={[styles.headerTitle, { color: customBg ? '#fff' : (currentTheme.mode === 'dark' ? '#fff' : '#000') }]}>Bestie 🩷</Text>
+                <Text style={[styles.headerTitle, { color: customBg ? '#fff' : (currentTheme.mode === 'dark' ? '#fff' : '#000') }]}>Your Bestie</Text>
                 <Text style={{ color: isTyping ? currentTheme.bubbleUser : '#10b981', fontSize: 12, fontWeight: 'bold' }}>{isTyping ? 'Typing...' : 'Online'}</Text>
               </View>
             </View>
@@ -432,28 +405,39 @@ CRITICAL RULES:
             inverted
             keyboardDismissMode="on-drag"
             contentContainerStyle={{ padding: 16 }}
-            removeClippedSubviews={Platform.OS === 'android'}
-            initialNumToRender={15}
-            maxToRenderPerBatch={10}
-            windowSize={10}
             renderItem={({ item }) => {
               const isUser = item.role === 'user';
-              return (
-                <View style={[styles.messageWrapper, isUser ? { alignSelf: 'flex-end' } : { alignSelf: 'flex-start' }]}>
-                  <TouchableOpacity 
-                    onLongPress={() => setReplyingTo(item)} 
-                    activeOpacity={0.8}
-                    style={[styles.bubble, { backgroundColor: isUser ? currentTheme.bubbleUser : currentTheme.bubbleAI }]}
-                  >
-                    {item.replyContext && (
-                      <View style={{ backgroundColor: 'rgba(0,0,0,0.1)', padding: 8, borderRadius: 8, marginBottom: 6, borderLeftWidth: 3, borderLeftColor: isUser ? '#fff' : currentTheme.bubbleUser }}>
-                        <Text style={{ fontSize: 11, color: isUser ? '#f4f4f5' : '#52525b', fontWeight: 'bold' }}>Replying to:</Text>
-                        <Text style={{ fontSize: 12, color: isUser ? '#fff' : currentTheme.textAI }} numberOfLines={2}>{item.replyContext}</Text>
-                      </View>
-                    )}
-                    <Text style={{ fontSize: 16, color: isUser ? '#ffffff' : currentTheme.textAI }}>{item.text}</Text>
-                  </TouchableOpacity>
+              
+              const renderLeftActions = () => (
+                <View style={{ justifyContent: 'center', paddingHorizontal: 20 }}>
+                  <Ionicons name="arrow-undo" size={24} color={currentTheme.bubbleUser} />
                 </View>
+              );
+
+              return (
+                <Swipeable 
+                  renderLeftActions={renderLeftActions} 
+                  onSwipeableOpen={(direction, swipeable) => {
+                    setReplyingTo(item);
+                    swipeable.close();
+                  }}
+                >
+                  <View style={[styles.messageWrapper, isUser ? { alignSelf: 'flex-end' } : { alignSelf: 'flex-start' }]}>
+                    <TouchableOpacity 
+                      onLongPress={() => handleCopy(item.text)} 
+                      activeOpacity={0.8}
+                      style={[styles.bubble, { backgroundColor: isUser ? currentTheme.bubbleUser : currentTheme.bubbleAI }]}
+                    >
+                      {item.replyContext && (
+                        <View style={{ backgroundColor: 'rgba(0,0,0,0.1)', padding: 8, borderRadius: 8, marginBottom: 6, borderLeftWidth: 3, borderLeftColor: isUser ? '#fff' : currentTheme.bubbleUser }}>
+                          <Text style={{ fontSize: 11, color: isUser ? '#f4f4f5' : '#52525b', fontWeight: 'bold' }}>Replying to:</Text>
+                          <Text style={{ fontSize: 12, color: isUser ? '#fff' : currentTheme.textAI }} numberOfLines={2}>{item.replyContext}</Text>
+                        </View>
+                      )}
+                      <Text style={{ fontSize: 16, color: isUser ? '#ffffff' : currentTheme.textAI }}>{item.text}</Text>
+                    </TouchableOpacity>
+                  </View>
+                </Swipeable>
               );
             }}
           />

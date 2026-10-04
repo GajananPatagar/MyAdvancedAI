@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import {
   StyleSheet, Text, View, TextInput, TouchableOpacity, FlatList,
   KeyboardAvoidingView, Platform, ActivityIndicator, Modal, ScrollView,
-  Alert, Animated, Image
+  Alert, Animated, Switch
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -16,29 +16,35 @@ import EventSource from 'react-native-sse';
 
 // --- ENTERPRISE THEMING ENGINE ---
 const THEMES = {
-  OLED: { name: 'OLED Black', bg: '#000000', card: '#0a0a0a', border: '#171717', text: '#ffffff', textMuted: '#737373', primary: '#3b82f6', userBg: '#1d4ed8', aiBg: '#0a0a0a' },
-  Dark: { name: 'Pro Dark', bg: '#09090b', card: '#18181b', border: '#27272a', text: '#f4f4f5', textMuted: '#a1a1aa', primary: '#2563eb', userBg: '#2563eb', aiBg: '#18181b' },
-  Light: { name: 'Clean Light', bg: '#f8fafc', card: '#ffffff', border: '#e2e8f0', text: '#0f172a', textMuted: '#64748b', primary: '#0ea5e9', userBg: '#0ea5e9', aiBg: '#ffffff' },
-  Ocean: { name: 'Deep Ocean', bg: '#0f172a', card: '#1e293b', border: '#334155', text: '#f1f5f9', textMuted: '#94a3b8', primary: '#0284c7', userBg: '#0284c7', aiBg: '#1e293b' },
+  Dark: { name: 'Pro Dark', bg: '#09090b', card: '#18181b', border: '#27272a', text: '#f4f4f5', textMuted: '#a1a1aa', primary: '#2563eb', userBg: '#2563eb', aiBg: '#18181b', thinkBg: '#1e1b4b', thinkBorder: '#3730a3' },
+  OLED: { name: 'OLED Black', bg: '#000000', card: '#0a0a0a', border: '#171717', text: '#ffffff', textMuted: '#737373', primary: '#3b82f6', userBg: '#1d4ed8', aiBg: '#0a0a0a', thinkBg: '#020617', thinkBorder: '#1e293b' },
 };
 
 export default function AIChatApp() {
   const insets = useSafeAreaInsets();
 
-  // --- STATE ---
+  // --- SETTINGS & BILLING STATE ---
   const [apiKey, setApiKey] = useState('xpl_06e58639becf90ade37da17d2014fcaf0c1236c6');
   const [baseUrl, setBaseUrl] = useState('https://api.experientiallabs.ai/v1/chat/completions');
   const [modelName, setModelName] = useState('qwen3.8-27b');
-  const [systemPrompt, setSystemPrompt] = useState('You are a highly advanced, professional AI assistant.');
+  const [systemPrompt, setSystemPrompt] = useState('You are a highly advanced AI assistant.');
   const [currentTheme, setCurrentTheme] = useState('Dark');
-  const t = THEMES[currentTheme]; // Active Theme
+  const [isAdvancedThinking, setIsAdvancedThinking] = useState(false);
+  const t = THEMES[currentTheme] || THEMES.Dark;
+  
+  // Ledger State
+  const [totalTokensUsed, setTotalTokensUsed] = useState(0);
+  const [estimatedCost, setEstimatedCost] = useState(0);
+  const [creditHistory, setCreditHistory] = useState([]);
   
   const [settingsVisible, setSettingsVisible] = useState(false);
+  const [activeTab, setActiveTab] = useState('models'); // 'models' or 'billing'
   const [availableModels, setAvailableModels] = useState([]);
   const [isFetchingModels, setIsFetchingModels] = useState(false);
-  const [peekModel, setPeekModel] = useState(null); // Long-press model details
+  const [peekModel, setPeekModel] = useState(null);
 
-  const [messages, setMessages] = useState([{ id: 'init-1', role: 'assistant', text: 'System initialized. All secure protocols online. How can I assist you today?' }]);
+  // --- CHAT STATE ---
+  const [messages, setMessages] = useState([{ id: 'init-1', role: 'assistant', text: 'System initialized. You can now select and copy any part of my text natively.' }]);
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [replyingTo, setReplyingTo] = useState(null);
@@ -48,7 +54,7 @@ export default function AIChatApp() {
   const eventSourceRef = useRef(null);
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
-  // --- INITIALIZATION & MEMORY ---
+  // --- MEMORY & LEDGER ---
   useEffect(() => {
     loadSettings();
     Animated.timing(fadeAnim, { toValue: 1, duration: 800, useNativeDriver: true }).start();
@@ -59,9 +65,16 @@ export default function AIChatApp() {
       const savedTheme = await AsyncStorage.getItem('theme');
       const savedKey = await AsyncStorage.getItem('apiKey');
       const savedModel = await AsyncStorage.getItem('modelName');
+      const savedTokens = await AsyncStorage.getItem('totalTokens');
+      const savedCost = await AsyncStorage.getItem('totalCost');
+      const savedHistory = await AsyncStorage.getItem('creditHistory');
+      
       if (savedTheme) setCurrentTheme(savedTheme);
       if (savedKey) setApiKey(savedKey);
       if (savedModel) setModelName(savedModel);
+      if (savedTokens) setTotalTokensUsed(parseInt(savedTokens, 10));
+      if (savedCost) setEstimatedCost(parseFloat(savedCost));
+      if (savedHistory) setCreditHistory(JSON.parse(savedHistory));
     } catch (e) {}
   };
 
@@ -73,9 +86,33 @@ export default function AIChatApp() {
     triggerHaptic();
   };
 
+  const logTransaction = async (tokens, cost) => {
+    const newTokens = totalTokensUsed + tokens;
+    const newCost = estimatedCost + cost;
+    const newRecord = { id: Date.now().toString(), date: new Date().toLocaleString(), model: modelName, tokens, cost };
+    const newHistory = [newRecord, ...creditHistory].slice(0, 50); // Keep last 50
+    
+    setTotalTokensUsed(newTokens);
+    setEstimatedCost(newCost);
+    setCreditHistory(newHistory);
+    
+    await AsyncStorage.setItem('totalTokens', newTokens.toString());
+    await AsyncStorage.setItem('totalCost', newCost.toString());
+    await AsyncStorage.setItem('creditHistory', JSON.stringify(newHistory));
+  };
+
   const triggerHaptic = () => { if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); };
 
-  // --- API LOGIC (WITH MODEL DETAILS) ---
+  // --- API LOGIC ---
+  const getModelPricePer1M = (id) => {
+    const lowerId = id.toLowerCase();
+    if (lowerId.includes('gpt-4') || lowerId.includes('claude-3-opus')) return 15.00;
+    if (lowerId.includes('gpt-4o') || lowerId.includes('claude-3-sonnet')) return 3.00;
+    if (lowerId.includes('o1')) return 15.00;
+    if (lowerId.includes('deepseek') || lowerId.includes('qwen') || lowerId.includes('llama')) return 0.15;
+    return 0.50; // Default generic cost
+  };
+
   const fetchModels = async () => {
     setIsFetchingModels(true);
     triggerHaptic();
@@ -84,20 +121,16 @@ export default function AIChatApp() {
       const response = await fetch(modelsUrl, { headers: { 'Authorization': `Bearer ${apiKey.trim()}` }});
       const data = await response.json();
       if (data.data) {
-        // Map data and calculate mock/real pricing for professional display
-        const enrichedModels = data.data.map(m => {
-          const isPro = m.id.toLowerCase().includes('pro') || m.id.toLowerCase().includes('4o');
-          return {
-            id: m.id,
-            owner: m.owned_by || 'Experiential Labs',
-            cost: isPro ? '$0.05 / 1M Tokens' : 'Free Tier',
-            type: m.id.includes('vl') || m.id.includes('vision') ? 'Multimodal (Vision)' : 'Text Only'
-          };
-        });
+        const enrichedModels = data.data.map(m => ({
+          id: m.id,
+          owner: m.owned_by || 'Unknown API',
+          costPer1M: getModelPricePer1M(m.id),
+          type: m.id.includes('vl') || m.id.includes('vision') ? 'Multimodal (Vision)' : 'Text/Reasoning'
+        }));
         setAvailableModels(enrichedModels);
       }
     } catch (err) {
-      Alert.alert('Fetch Error', 'Ensure your API key is valid.');
+      Alert.alert('Fetch Error', 'Ensure your API key and Base URL are valid.');
     } finally {
       setIsFetchingModels(false);
     }
@@ -133,8 +166,14 @@ export default function AIChatApp() {
     setIsLoading(true);
     triggerHaptic();
 
+    // Advanced Thinking Injection
+    let currentSystemPrompt = systemPrompt;
+    if (isAdvancedThinking) {
+      currentSystemPrompt += "\n\nCRITICAL INSTRUCTION: You must think step-by-step before answering. Wrap your detailed reasoning process entirely inside <think> and </think> tags at the very beginning of your response, followed by your final answer.";
+    }
+
     const apiPayload = [
-      { role: 'system', content: systemPrompt },
+      { role: 'system', content: currentSystemPrompt },
       ...[...messages, userMessage].reverse().map((msg) => {
         if (msg.role === 'user' && msg.attachedFile && msg.attachedFile.type !== 'text') {
            return { role: 'user', content: [{ type: 'text', text: msg.text }, { type: 'image_url', image_url: { url: `data:${msg.attachedFile.mime};base64,${msg.attachedFile.content}` } }] };
@@ -142,6 +181,8 @@ export default function AIChatApp() {
         return { role: msg.role === 'assistant' ? 'assistant' : 'user', content: msg.text };
       })
     ];
+
+    let charCount = 0; // For token estimation
 
     const es = new EventSource(baseUrl.trim(), {
       method: 'POST',
@@ -156,12 +197,18 @@ export default function AIChatApp() {
         es.close();
         setIsLoading(false);
         triggerHaptic();
+        // Log transaction (Estimation: 1 token ≈ 4 chars)
+        const estTokens = Math.floor(charCount / 4) + 50; // +50 base overhead
+        const pricePer1M = getModelPricePer1M(modelName);
+        const calcCost = (estTokens / 1000000) * pricePer1M;
+        logTransaction(estTokens, calcCost);
         return;
       }
       try {
         const parsed = JSON.parse(event.data);
         const chunk = parsed.choices[0]?.delta?.content;
         if (chunk) {
+          charCount += chunk.length;
           setMessages((prev) => {
             const updated = [...prev];
             updated[0] = { ...updated[0], text: updated[0].text + chunk };
@@ -176,7 +223,7 @@ export default function AIChatApp() {
       setIsLoading(false);
       setMessages((prev) => {
         const updated = [...prev];
-        updated[0] = { ...updated[0], text: updated[0].text + "\n⚠️ API Rejected the Request." };
+        updated[0] = { ...updated[0], text: updated[0].text + "\n⚠️ Stream interrupted. Check API connection." };
         return updated;
       });
     });
@@ -194,15 +241,38 @@ export default function AIChatApp() {
       if (!result.canceled && result.assets && result.assets.length > 0) {
         const file = result.assets[0];
         if (file.size > 10 * 1024 * 1024) return Alert.alert('Error', 'File must be under 10MB.');
-        
         const mime = file.mimeType || '';
         const isText = mime.startsWith('text/') || mime.includes('json') || mime.includes('csv');
         const content = await FileSystem.readAsStringAsync(file.uri, { encoding: isText ? FileSystem.EncodingType.UTF8 : FileSystem.EncodingType.Base64 });
-        
         setAttachedFile({ name: file.name, type: isText ? 'text' : mime.startsWith('image/') ? 'image' : 'document', mime, content });
         triggerHaptic();
       }
     } catch (err) { Alert.alert('Error', err.message); }
+  };
+
+  // --- MESSAGE RENDERER WITH <THINK> PARSER ---
+  const renderMessageText = (text, isUser) => {
+    if (isUser) return <Text style={[styles.messageText, { color: '#ffffff' }]} selectable={true}>{text}</Text>;
+
+    const thinkMatch = text.match(/<think>([\s\S]*?)(?:<\/think>|$)/);
+    if (thinkMatch) {
+      const thinkingText = thinkMatch[1].trim();
+      const actualResponse = text.replace(/<think>[\s\S]*?(?:<\/think>|$)/, '').trim();
+      
+      return (
+        <View>
+          <View style={[styles.thinkingContainer, { backgroundColor: t.thinkBg, borderColor: t.thinkBorder }]}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
+              {isLoading && !text.includes('</think>') ? <ActivityIndicator size="small" color={t.primary} style={{ marginRight: 6 }} /> : <Ionicons name="brain" size={14} color={t.primary} style={{ marginRight: 6 }} />}
+              <Text style={{ color: t.primary, fontWeight: 'bold', fontSize: 12 }}>{isLoading && !text.includes('</think>') ? 'Thinking...' : 'Reasoning Process'}</Text>
+            </View>
+            <Text style={{ color: t.textMuted, fontSize: 13, fontStyle: 'italic' }} selectable={true}>{thinkingText}</Text>
+          </View>
+          {actualResponse ? <Text style={[styles.messageText, { color: t.text, marginTop: 8 }]} selectable={true}>{actualResponse}</Text> : null}
+        </View>
+      );
+    }
+    return <Text style={[styles.messageText, { color: t.text }]} selectable={true}>{text}</Text>;
   };
 
   const renderMessage = ({ item, index }) => {
@@ -210,18 +280,14 @@ export default function AIChatApp() {
     return (
       <Animated.View style={[styles.messageWrapper, isUser ? styles.userWrapper : styles.aiWrapper, { opacity: fadeAnim }]}>
         <View style={{ flexDirection: isUser ? 'row-reverse' : 'row', alignItems: 'flex-end' }}>
-          {/* Avatar */}
           <View style={[styles.avatar, { backgroundColor: isUser ? t.primary : t.card, borderColor: t.border }]}>
-            <Ionicons name={isUser ? "person" : "hardware-chip"} size={16} color={isUser ? "#fff" : t.primary} />
+            <Ionicons name={isUser ? "person" : "logo-electron"} size={16} color={isUser ? "#fff" : t.primary} />
           </View>
-          
-          <TouchableOpacity onLongPress={() => setReplyingTo(item)} activeOpacity={0.85} style={[styles.messageBubble, { backgroundColor: isUser ? t.userBg : t.aiBg, borderColor: isUser ? t.userBg : t.border }]}>
-            <Text style={[styles.messageText, { color: isUser ? '#ffffff' : t.text }]}>
-              {item.text || (isLoading && index === 0 ? "Analyzing..." : "")}
-            </Text>
+          <TouchableOpacity onLongPress={() => setReplyingTo(item)} activeOpacity={0.9} style={[styles.messageBubble, { backgroundColor: isUser ? t.userBg : t.aiBg, borderColor: isUser ? t.userBg : t.border }]}>
+             {renderMessageText(item.text, isUser)}
+             {isLoading && index === 0 && !isUser && !item.text && <ActivityIndicator size="small" color={t.primary} />}
           </TouchableOpacity>
         </View>
-        
         <View style={[styles.actionBar, isUser ? { alignSelf: 'flex-end', marginRight: 42 } : { alignSelf: 'flex-start', marginLeft: 42 }]}>
           <TouchableOpacity style={styles.actionBtn} onPress={() => copyText(item.text)}><Ionicons name="copy-outline" size={14} color={t.textMuted} /><Text style={[styles.actionText, { color: t.textMuted }]}>Copy</Text></TouchableOpacity>
           {isUser && <TouchableOpacity style={styles.actionBtn} onPress={() => editUserMessage(item)}><Ionicons name="pencil-outline" size={14} color={t.textMuted} /><Text style={[styles.actionText, { color: t.textMuted }]}>Edit</Text></TouchableOpacity>}
@@ -235,18 +301,31 @@ export default function AIChatApp() {
     <KeyboardAvoidingView style={[styles.container, { backgroundColor: t.bg }]} behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 24}>
       <View style={{ flex: 1, paddingTop: insets.top }}>
         
-        {/* Header */}
+        {/* --- DYNAMIC HEADER WITH TOGGLE --- */}
         <View style={[styles.header, { borderBottomColor: t.border, backgroundColor: t.bg }]}>
-          <View>
+          <View style={{ flex: 1 }}>
             <Text style={[styles.headerTitle, { color: t.text }]}>Advanced AI</Text>
-            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <TouchableOpacity onPress={() => setSettingsVisible(true)} style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
               <View style={[styles.statusDot, { backgroundColor: isLoading ? t.primary : '#10b981' }]} />
-              <Text style={[styles.headerSubtitle, { color: t.textMuted }]}>{modelName}</Text>
-            </View>
+              <Text style={[styles.headerSubtitle, { color: t.textMuted }]} numberOfLines={1}>{modelName}</Text>
+            </TouchableOpacity>
           </View>
-          <View style={styles.headerIcons}>
+          
+          <View style={{ alignItems: 'center', flexDirection: 'row' }}>
+            <View style={{ alignItems: 'center', marginRight: 12 }}>
+              <Text style={{ color: isAdvancedThinking ? t.primary : t.textMuted, fontSize: 10, fontWeight: 'bold', marginBottom: 4 }}>
+                {isAdvancedThinking ? 'THINKING 🧠' : 'FLASH ⚡️'}
+              </Text>
+              <Switch 
+                value={isAdvancedThinking} 
+                onValueChange={(val) => { setIsAdvancedThinking(val); triggerHaptic(); }} 
+                trackColor={{ false: t.border, true: t.primary }}
+                thumbColor={"#fff"}
+                style={{ transform: [{ scaleX: 0.8 }, { scaleY: 0.8 }] }}
+              />
+            </View>
             <TouchableOpacity onPress={clearChat} style={styles.iconBtn}><Ionicons name="trash-outline" size={22} color={t.textMuted} /></TouchableOpacity>
-            <TouchableOpacity onPress={() => setSettingsVisible(true)} style={styles.iconBtn}><Ionicons name="settings-sharp" size={22} color={t.textMuted} /></TouchableOpacity>
+            <TouchableOpacity onPress={() => setSettingsVisible(true)} style={styles.iconBtn}><Ionicons name="options" size={24} color={t.textMuted} /></TouchableOpacity>
           </View>
         </View>
 
@@ -275,15 +354,11 @@ export default function AIChatApp() {
           <TouchableOpacity style={styles.attachButton} onPress={pickDocument}>
             <Ionicons name="add-circle" size={32} color={t.textMuted} />
           </TouchableOpacity>
-          
           <View style={[styles.inputWrapper, { backgroundColor: t.card, borderColor: t.border }]}>
             <TextInput style={[styles.input, { color: t.text }]} placeholder="Message AI..." placeholderTextColor={t.textMuted} value={inputText} onChangeText={setInputText} multiline />
           </View>
-          
           {isLoading ? (
-            <TouchableOpacity style={styles.stopButton} onPress={stopGeneration}>
-              <Ionicons name="square" size={16} color="#ffffff" />
-            </TouchableOpacity>
+            <TouchableOpacity style={styles.stopButton} onPress={stopGeneration}><Ionicons name="square" size={16} color="#ffffff" /></TouchableOpacity>
           ) : (
             <TouchableOpacity style={[styles.sendButton, { backgroundColor: (!inputText.trim() && !attachedFile) ? t.card : t.primary }]} onPress={() => sendMessage()} disabled={!inputText.trim() && !attachedFile}>
               <Ionicons name="arrow-up" size={20} color={(!inputText.trim() && !attachedFile) ? t.textMuted : '#ffffff'} />
@@ -291,76 +366,93 @@ export default function AIChatApp() {
           )}
         </View>
 
-        {/* --- PRO SETTINGS & THEME MODAL --- */}
+        {/* --- SETTINGS & BILLING MODAL --- */}
         <Modal visible={settingsVisible} animationType="slide" transparent>
           <View style={styles.modalOverlay}>
             <View style={[styles.modalContent, { backgroundColor: t.bg, borderColor: t.border }]}>
+              
               <View style={styles.modalHeader}>
-                <Text style={[styles.modalTitle, { color: t.text }]}>Configuration</Text>
+                <Text style={[styles.modalTitle, { color: t.text }]}>Settings</Text>
                 <TouchableOpacity onPress={() => setSettingsVisible(false)}><Ionicons name="close" size={28} color={t.textMuted} /></TouchableOpacity>
               </View>
 
-              {/* Theme Selector */}
-              <Text style={[styles.inputLabel, { color: t.textMuted }]}>App Theme</Text>
-              <View style={styles.themeRow}>
-                {Object.keys(THEMES).map(themeKey => (
-                  <TouchableOpacity key={themeKey} onPress={() => setCurrentTheme(themeKey)} style={[styles.themeBtn, currentTheme === themeKey && { borderColor: t.primary }]}>
-                    <View style={[styles.themeColorBubble, { backgroundColor: THEMES[themeKey].bg }]} />
-                    <Text style={[styles.themeText, { color: currentTheme === themeKey ? t.primary : t.textMuted }]}>{THEMES[themeKey].name}</Text>
-                  </TouchableOpacity>
-                ))}
+              {/* Tabs */}
+              <View style={[styles.tabBar, { borderBottomColor: t.border }]}>
+                <TouchableOpacity onPress={() => setActiveTab('models')} style={[styles.tab, activeTab === 'models' && { borderBottomColor: t.primary, borderBottomWidth: 2 }]}><Text style={{ color: activeTab === 'models' ? t.primary : t.textMuted, fontWeight: 'bold' }}>Models & Config</Text></TouchableOpacity>
+                <TouchableOpacity onPress={() => setActiveTab('billing')} style={[styles.tab, activeTab === 'billing' && { borderBottomColor: t.primary, borderBottomWidth: 2 }]}><Text style={{ color: activeTab === 'billing' ? t.primary : t.textMuted, fontWeight: 'bold' }}>Ledger & Billing</Text></TouchableOpacity>
               </View>
 
-              {/* Model Fetching & Peek List */}
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' }}>
-                <Text style={[styles.inputLabel, { color: t.textMuted }]}>Available Models</Text>
-                <TouchableOpacity onPress={fetchModels}>
-                  <Text style={{ color: t.primary, fontSize: 12, marginBottom: 6 }}>{isFetchingModels ? "Fetching..." : "Refresh List"}</Text>
-                </TouchableOpacity>
-              </View>
-              
-              <View style={[styles.dropdownContainer, { backgroundColor: t.card, borderColor: t.border }]}>
-                {availableModels.length === 0 ? <Text style={{ color: t.textMuted, padding: 12 }}>No models fetched yet.</Text> : (
-                  <ScrollView style={{ maxHeight: 160 }}>
-                    {availableModels.map((m) => (
-                      <TouchableOpacity 
-                        key={m.id} 
-                        style={[styles.dropdownItem, { borderBottomColor: t.border }, modelName === m.id && { backgroundColor: t.primary + '20' }]} 
-                        onPress={() => setModelName(m.id)}
-                        onPressIn={() => setPeekModel(m)}
-                        onPressOut={() => setPeekModel(null)}
-                        delayPressIn={300}
-                      >
-                        <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                          <Text style={[styles.dropdownText, { color: modelName === m.id ? t.primary : t.text }]}>{m.id}</Text>
-                          <Text style={{ color: m.cost === 'Free Tier' ? '#10b981' : t.textMuted, fontSize: 12 }}>{m.cost}</Text>
-                        </View>
+              {activeTab === 'models' ? (
+                <ScrollView style={{ marginTop: 10 }} showsVerticalScrollIndicator={false}>
+                  <Text style={[styles.inputLabel, { color: t.textMuted }]}>Theme</Text>
+                  <View style={styles.themeRow}>
+                    {Object.keys(THEMES).map(themeKey => (
+                      <TouchableOpacity key={themeKey} onPress={() => setCurrentTheme(themeKey)} style={[styles.themeBtn, currentTheme === themeKey && { borderColor: t.primary }]}>
+                        <View style={[styles.themeColorBubble, { backgroundColor: THEMES[themeKey].bg }]} />
+                        <Text style={[styles.themeText, { color: currentTheme === themeKey ? t.primary : t.textMuted }]}>{THEMES[themeKey].name}</Text>
                       </TouchableOpacity>
                     ))}
-                  </ScrollView>
-                )}
-              </View>
-              <Text style={{ color: t.textMuted, fontSize: 10, marginTop: 4 }}>* Long-press any model to view details.</Text>
+                  </View>
 
-              {/* API Settings */}
-              <Text style={[styles.inputLabel, { color: t.textMuted, marginTop: 16 }]}>API Key</Text>
-              <TextInput style={[styles.modalInput, { backgroundColor: t.card, color: t.text, borderColor: t.border }]} value={apiKey} onChangeText={setApiKey} secureTextEntry />
-
-              <TouchableOpacity style={[styles.saveButton, { backgroundColor: t.primary }]} onPress={saveSettings}>
-                <Text style={styles.saveButtonText}>Save Settings</Text>
-              </TouchableOpacity>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: 16 }}>
+                    <Text style={[styles.inputLabel, { color: t.textMuted }]}>Available Models</Text>
+                    <TouchableOpacity onPress={fetchModels}><Text style={{ color: t.primary, fontSize: 12, marginBottom: 6 }}>{isFetchingModels ? "Fetching..." : "Fetch Library"}</Text></TouchableOpacity>
+                  </View>
+                  <View style={[styles.dropdownContainer, { backgroundColor: t.card, borderColor: t.border }]}>
+                    {availableModels.length === 0 ? <Text style={{ color: t.textMuted, padding: 12 }}>No models fetched yet.</Text> : (
+                      <ScrollView style={{ maxHeight: 180 }} nestedScrollEnabled>
+                        {availableModels.map((m) => (
+                          <TouchableOpacity key={m.id} style={[styles.dropdownItem, { borderBottomColor: t.border }, modelName === m.id && { backgroundColor: t.primary + '20' }]} onPress={() => setModelName(m.id)} onPressIn={() => setPeekModel(m)} onPressOut={() => setPeekModel(null)} delayPressIn={300}>
+                            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                              <Text style={[styles.dropdownText, { color: modelName === m.id ? t.primary : t.text }]} numberOfLines={1}>{m.id.substring(0,25)}</Text>
+                              <Text style={{ color: '#10b981', fontSize: 12, fontWeight: 'bold' }}>${m.costPer1M.toFixed(2)}/1M</Text>
+                            </View>
+                          </TouchableOpacity>
+                        ))}
+                      </ScrollView>
+                    )}
+                  </View>
+                  
+                  <Text style={[styles.inputLabel, { color: t.textMuted, marginTop: 16 }]}>System Persona</Text>
+                  <TextInput style={[styles.modalInput, { backgroundColor: t.card, color: t.text, borderColor: t.border }]} value={systemPrompt} onChangeText={setSystemPrompt} multiline />
+                  <Text style={[styles.inputLabel, { color: t.textMuted, marginTop: 16 }]}>API Key</Text>
+                  <TextInput style={[styles.modalInput, { backgroundColor: t.card, color: t.text, borderColor: t.border }]} value={apiKey} onChangeText={setApiKey} secureTextEntry />
+                  <TouchableOpacity style={[styles.saveButton, { backgroundColor: t.primary }]} onPress={saveSettings}><Text style={styles.saveButtonText}>Save Options</Text></TouchableOpacity>
+                </ScrollView>
+              ) : (
+                <ScrollView style={{ marginTop: 10 }}>
+                  <View style={[styles.ledgerCard, { backgroundColor: t.card, borderColor: t.border }]}>
+                    <Text style={{ color: t.textMuted, fontSize: 13, textTransform: 'uppercase', fontWeight: 'bold' }}>Total Estimated Tokens</Text>
+                    <Text style={{ color: t.text, fontSize: 32, fontWeight: '900', marginVertical: 8 }}>{totalTokensUsed.toLocaleString()}</Text>
+                    <Text style={{ color: '#ef4444', fontSize: 14, fontWeight: '600' }}>Approx Cost: ${estimatedCost.toFixed(4)}</Text>
+                  </View>
+                  <Text style={[styles.inputLabel, { color: t.textMuted, marginTop: 20 }]}>Recent Transactions</Text>
+                  {creditHistory.length === 0 ? <Text style={{ color: t.textMuted }}>No history yet.</Text> : creditHistory.map((item) => (
+                    <View key={item.id} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: t.border }}>
+                      <View>
+                        <Text style={{ color: t.text, fontWeight: '600', fontSize: 13 }}>{item.model.substring(0,20)}</Text>
+                        <Text style={{ color: t.textMuted, fontSize: 11 }}>{item.date}</Text>
+                      </View>
+                      <View style={{ alignItems: 'flex-end' }}>
+                        <Text style={{ color: t.primary, fontWeight: 'bold', fontSize: 13 }}>{item.tokens} tkns</Text>
+                        <Text style={{ color: '#ef4444', fontSize: 11 }}>-${item.cost.toFixed(5)}</Text>
+                      </View>
+                    </View>
+                  ))}
+                  <TouchableOpacity style={[styles.saveButton, { backgroundColor: t.card, borderWidth: 1, borderColor: t.border }]} onPress={() => { setCreditHistory([]); setTotalTokensUsed(0); setEstimatedCost(0); }}><Text style={[styles.saveButtonText, { color: '#ef4444' }]}>Clear Ledger</Text></TouchableOpacity>
+                </ScrollView>
+              )}
             </View>
           </View>
           
-          {/* PEEK MODAL (Long press model) */}
+          {/* Peek Info */}
           {peekModel && (
             <View style={styles.peekOverlay}>
               <View style={[styles.peekBox, { backgroundColor: t.card, borderColor: t.primary }]}>
                 <Text style={[styles.peekTitle, { color: t.text }]}>{peekModel.id}</Text>
-                <Text style={{ color: t.textMuted, marginTop: 4 }}>Provider: {peekModel.owner}</Text>
                 <Text style={{ color: t.textMuted, marginTop: 4 }}>Capability: {peekModel.type}</Text>
                 <View style={{ backgroundColor: t.bg, padding: 8, borderRadius: 6, marginTop: 12 }}>
-                  <Text style={{ color: t.primary, fontWeight: 'bold' }}>Cost: {peekModel.cost}</Text>
+                  <Text style={{ color: '#10b981', fontWeight: 'bold' }}>Cost: ${peekModel.costPer1M.toFixed(2)} per 1M Tokens</Text>
                 </View>
               </View>
             </View>
@@ -373,19 +465,20 @@ export default function AIChatApp() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 14, borderBottomWidth: 1 },
-  headerTitle: { fontSize: 22, fontWeight: '800', letterSpacing: -0.5 },
-  headerSubtitle: { fontSize: 13, marginTop: 2, marginLeft: 6 },
-  statusDot: { width: 6, height: 6, borderRadius: 3, marginTop: 2 },
-  headerIcons: { flexDirection: 'row' },
-  iconBtn: { marginLeft: 18 },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1 },
+  headerTitle: { fontSize: 20, fontWeight: '800', letterSpacing: -0.5 },
+  headerSubtitle: { fontSize: 12, marginLeft: 6, fontWeight: '600' },
+  statusDot: { width: 8, height: 8, borderRadius: 4 },
+  headerIcons: { flexDirection: 'row', alignItems: 'center' },
+  iconBtn: { marginLeft: 16 },
   chatContainer: { padding: 16 },
-  messageWrapper: { marginVertical: 12, maxWidth: '90%' },
+  messageWrapper: { marginVertical: 12, maxWidth: '92%' },
   userWrapper: { alignSelf: 'flex-end' },
   aiWrapper: { alignSelf: 'flex-start' },
-  avatar: { width: 28, height: 28, borderRadius: 14, justifyContent: 'center', alignItems: 'center', marginHorizontal: 8, borderWidth: 1 },
-  messageBubble: { padding: 16, borderRadius: 20, borderWidth: 1, elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4 },
+  avatar: { width: 30, height: 30, borderRadius: 15, justifyContent: 'center', alignItems: 'center', marginHorizontal: 8, borderWidth: 1 },
+  messageBubble: { padding: 16, borderRadius: 20, borderWidth: 1 },
   messageText: { fontSize: 16, lineHeight: 24 },
+  thinkingContainer: { padding: 12, borderRadius: 12, borderWidth: 1, marginBottom: 8, borderLeftWidth: 4 },
   actionBar: { flexDirection: 'row', marginTop: 8 },
   actionBtn: { flexDirection: 'row', alignItems: 'center', marginRight: 16 },
   actionText: { fontSize: 12, marginLeft: 4, fontWeight: '500' },
@@ -398,10 +491,12 @@ const styles = StyleSheet.create({
   sendButton: { width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center', marginLeft: 10, marginBottom: 2 },
   stopButton: { backgroundColor: '#ef4444', width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center', marginLeft: 10, marginBottom: 2 },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
-  modalContent: { borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, borderWidth: 1, borderBottomWidth: 0, minHeight: '80%' },
-  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
+  modalContent: { borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, borderWidth: 1, borderBottomWidth: 0, minHeight: '85%' },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
   modalTitle: { fontSize: 24, fontWeight: '800' },
-  inputLabel: { fontSize: 13, fontWeight: '600', marginBottom: 8, marginTop: 16, textTransform: 'uppercase', letterSpacing: 0.5 },
+  tabBar: { flexDirection: 'row', borderBottomWidth: 1, marginBottom: 10 },
+  tab: { flex: 1, paddingVertical: 12, alignItems: 'center' },
+  inputLabel: { fontSize: 12, fontWeight: 'bold', marginBottom: 8, marginTop: 10, textTransform: 'uppercase', letterSpacing: 0.5 },
   modalInput: { borderRadius: 12, padding: 16, borderWidth: 1, fontSize: 15 },
   themeRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 4 },
   themeBtn: { alignItems: 'center', padding: 8, borderWidth: 2, borderColor: 'transparent', borderRadius: 12, flex: 1 },
@@ -409,10 +504,11 @@ const styles = StyleSheet.create({
   themeText: { fontSize: 11, fontWeight: '600' },
   dropdownContainer: { borderRadius: 12, borderWidth: 1, overflow: 'hidden' },
   dropdownItem: { padding: 16, borderBottomWidth: 1 },
-  dropdownText: { fontSize: 15, fontWeight: '500' },
-  saveButton: { borderRadius: 14, padding: 16, alignItems: 'center', marginTop: 32, elevation: 4 },
+  dropdownText: { fontSize: 14, fontWeight: '500' },
+  saveButton: { borderRadius: 14, padding: 16, alignItems: 'center', marginTop: 24, elevation: 4 },
   saveButtonText: { color: '#ffffff', fontWeight: 'bold', fontSize: 16 },
-  peekOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.3)' },
-  peekBox: { padding: 20, borderRadius: 16, width: '80%', borderWidth: 2, elevation: 10 },
+  ledgerCard: { padding: 20, borderRadius: 16, borderWidth: 1, alignItems: 'center', marginTop: 10 },
+  peekOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.4)' },
+  peekBox: { padding: 20, borderRadius: 16, width: '85%', borderWidth: 2, elevation: 10 },
   peekTitle: { fontSize: 18, fontWeight: 'bold' }
 });

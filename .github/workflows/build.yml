@@ -1,33 +1,47 @@
-name: EAS Android Build
+name: Build Free Android APK
 
 on:
   push:
     branches:
       - main
+  workflow_dispatch: # Allows you to manually trigger a build on GitHub
 
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Check out repository
+      - name: 📥 Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: ⚙️ Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22.x
-          cache: 'npm'
+          node-version: 22.x 
 
-      - name: Setup Expo and EAS
-        uses: expo/expo-github-action@v8
+      - name: ☕ Setup Java (Required for Android)
+        uses: actions/setup-java@v3
         with:
-          eas-version: latest
-          token: ${{ secrets.EXPO_TOKEN }}
+          distribution: 'temurin'
+          java-version: '17'
 
-      - name: Install dependencies
-        run: npm ci
+      - name: 📦 Install dependencies
+        run: npm install
 
-      - name: Build Android APK
-        env:
-          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-        run: eas build --platform android --profile preview --non-interactive
+      - name: 🔐 Inject GitHub Secrets into App
+        run: |
+          echo "EXPO_PUBLIC_GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}" > .env
+          echo "EXPO_PUBLIC_FIREBASE_API_KEY=${{ secrets.FIREBASE_API_KEY }}" >> .env
+
+      - name: 🏗️ Generate Native Android Code
+        run: npx expo prebuild --platform android --clean
+
+      - name: 🔨 Compile Production APK
+        working-directory: android
+        run: ./gradlew assembleRelease
+
+      - name: 🚀 Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Bestie-AI-APK
+          path: android/app/build/outputs/apk/release/app-release.apk

@@ -32,7 +32,7 @@ const auth = getAuth(app);
 // 2. GOOGLE WEB CLIENT ID
 GoogleSignin.configure({
   // IMPORTANT: Replace this string with the Web Client ID from your Firebase Authentication -> Google Sign-in settings
-  webClientId: 'YOUR_WEB_CLIENT_ID_HERE.apps.googleusercontent.com', 
+  webClientId: '585615829430-r3r9okm0mfumb3dkri2o2megd8hpk2us.apps.googleusercontent.com', 
 });
 
 // --- 25+ ROMANTIC THEMES ---
@@ -86,7 +86,6 @@ export default function BestieApp() {
   const flatListRef = useRef(null);
 
   // --- GOOGLE GEMINI SECURE ENGINE ---
-  // Using the secure environment variable set in GitHub/EAS
   const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY; 
   const baseUrl = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
   const modelName = 'gemini-1.5-flash'; 

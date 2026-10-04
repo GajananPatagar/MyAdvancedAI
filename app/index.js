@@ -16,9 +16,9 @@ import { initializeApp } from 'firebase/app';
 import { getFirestore, collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { getAuth, GoogleAuthProvider, signInWithCredential } from 'firebase/auth';
 
-// 1. LIVE FIREBASE CONFIGURATION
+// 1. SECURED FIREBASE CONFIGURATION
 const firebaseConfig = {
-  apiKey: "AIzaSyDCtuxd-BSOJ622lHBrQ0GZJgy_AXB5R_s",
+  apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY,
   authDomain: "bestie-ai-app.firebaseapp.com",
   projectId: "bestie-ai-app",
   storageBucket: "bestie-ai-app.firebasestorage.app",
@@ -30,7 +30,7 @@ const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
 
-// 2. LIVE GOOGLE WEB CLIENT ID
+// 2. GOOGLE WEB CLIENT ID (Public Identifier, Safe in Code)
 const GOOGLE_WEB_CLIENT_ID = '585615829430-r3r9okm0mfumb3dkri2o2megd8hpk2us.apps.googleusercontent.com';
 
 GoogleSignin.configure({ webClientId: GOOGLE_WEB_CLIENT_ID });
@@ -73,8 +73,8 @@ export default function BestieApp() {
 
   const flatListRef = useRef(null);
 
-  // --- GOOGLE GEMINI ENGINE ---
-  const apiKey = 'AQ.Ab8RN6I' + 'uffuahKH5CCqDZEigSOukrmexxjfKGMnOF_p3DPOUHw'; 
+  // --- SECURED GOOGLE GEMINI ENGINE ---
+  const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY; 
   const baseUrl = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
   const modelName = 'gemini-1.5-flash'; 
 
@@ -186,6 +186,11 @@ CRITICAL RULES:
   const sendMessage = async () => {
     if (!inputText.trim()) return;
 
+    if (!apiKey) {
+      Alert.alert('Security Error', 'API Key missing from environment variables. Run EAS build to inject secrets.');
+      return;
+    }
+
     let finalPrompt = inputText;
     if (replyingTo) finalPrompt = `[Replying to your message: "${replyingTo.text}"]\n${inputText}`;
 
@@ -240,7 +245,7 @@ CRITICAL RULES:
   if (!isRegistered) {
     return (
       <View style={[styles.onboardContainer, { paddingTop: insets.top }]}>
-        <Text style={styles.onboardTitle}>Your Bestie 🩷</Text>
+        <Text style={styles.onboardTitle}>Bestie 🩷</Text>
         <Text style={styles.onboardSub}>Let's create your perfect companion.</Text>
         
         <ScrollView style={styles.card} showsVerticalScrollIndicator={false}>
@@ -384,7 +389,7 @@ CRITICAL RULES:
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
               <View style={styles.profilePic}><Text style={{ fontSize: 20 }}>🩷</Text></View>
               <View>
-                <Text style={[styles.headerTitle, { color: customBg ? '#fff' : (currentTheme.mode === 'dark' ? '#fff' : '#000') }]}>Your Bestie</Text>
+                <Text style={[styles.headerTitle, { color: customBg ? '#fff' : (currentTheme.mode === 'dark' ? '#fff' : '#000') }]}>Bestie 🩷</Text>
                 <Text style={{ color: isTyping ? currentTheme.bubbleUser : '#10b981', fontSize: 12, fontWeight: 'bold' }}>{isTyping ? 'Typing...' : 'Online'}</Text>
               </View>
             </View>

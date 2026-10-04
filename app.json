@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Bestie AI",
+    "name": "Bestie 🩷",
     "slug": "MyAdvancedAI",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -23,18 +23,11 @@
       "package": "com.gajananpatagar.myadvancedai",
       "softwareKeyboardLayoutMode": "resize",
       "googleServicesFile": "./google-services.json",
-      "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#fdf2f8"
-      },
       "permissions": [
         "android.permission.VIBRATE",
         "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.RECORD_AUDIO"
       ]
-    },
-    "web": {
-      "favicon": "./assets/icon.png"
     },
     "plugins": [
       "@react-native-google-signin/google-signin",
@@ -44,7 +37,6 @@
       "eas": {
         "projectId": "dc9de076-4437-46a1-9dbc-8af671c3d1ee"
       }
-    },
-    "owner": "gaju.19"
+    }
   }
 }

@@ -8,7 +8,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import * as DocumentPicker from 'expo-document-picker';
-// FIXED: Using legacy import for Expo SDK 54+ compatibility
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Haptics from 'expo-haptics';
 import * as Sharing from 'expo-sharing';
@@ -35,13 +34,11 @@ export default function AIChatApp() {
   // --- SETTINGS & BILLING STATE ---
   const [apiKey, setApiKey] = useState('xpl_06e58639becf90ade37da17d2014fcaf0c1236c6');
   const [baseUrl, setBaseUrl] = useState('https://api.experientiallabs.ai/v1/chat/completions');
-  
-  // FIXED: Default to the free GLM model from the platform
   const [modelName, setModelName] = useState('glm-5.3-flash-abliterated'); 
   const [systemPrompt, setSystemPrompt] = useState('You are a highly advanced AI assistant.');
-  const [currentTheme, setCurrentTheme] = useState('Midnight_Indigo');
+  const [currentTheme, setCurrentTheme] = useState('Clean_Snow');
   const [isAdvancedThinking, setIsAdvancedThinking] = useState(false);
-  const t = THEMES[currentTheme] || THEMES.Midnight_Indigo;
+  const t = THEMES[currentTheme] || THEMES.Clean_Snow;
   
   const [totalTokensUsed, setTotalTokensUsed] = useState(0);
   const [estimatedCost, setEstimatedCost] = useState(0);
@@ -53,7 +50,7 @@ export default function AIChatApp() {
   const [isFetchingModels, setIsFetchingModels] = useState(false);
   const [peekModel, setPeekModel] = useState(null);
 
-  const [messages, setMessages] = useState([{ id: 'init-1', role: 'assistant', text: 'System initialized. 10 Premium Themes loaded. Ready to accept images for any model.' }]);
+  const [messages, setMessages] = useState([{ id: 'init-1', role: 'assistant', text: 'System initialized. 120Hz Engine Active. I will now safely adapt your images for any model you choose.' }]);
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [replyingTo, setReplyingTo] = useState(null);
@@ -113,13 +110,10 @@ export default function AIChatApp() {
 
   const getModelPricePer1M = (id) => {
     const lowerId = id.toLowerCase();
-    // Catch Experiential Labs Free Models
     if (lowerId.includes('free') || lowerId.includes('local') || lowerId.includes('glm-5.3-flash-abliterated') || lowerId.includes('jev')) return 0;
-    
     if (lowerId.includes('gpt-6') || lowerId.includes('gpt-4') || lowerId.includes('claude-3-opus') || lowerId.includes('o1')) return 15.00;
     if (lowerId.includes('gpt-4o') || lowerId.includes('claude-3-sonnet') || lowerId.includes('gemini-1.5-pro')) return 3.00;
     if (lowerId.includes('deepseek') || lowerId.includes('qwen') || lowerId.includes('llama') || lowerId.includes('gemini-1.5-flash') || lowerId.includes('haiku')) return 0.15;
-    
     return 0.50; 
   };
 
@@ -138,13 +132,11 @@ export default function AIChatApp() {
             owner: m.owned_by || 'Unknown API',
             costPer1M: rawCost,
             costDisplay: rawCost === 0 ? 'FREE' : `$${rawCost.toFixed(2)}/1M`,
-            type: m.id.includes('vl') || m.id.includes('vision') ? 'Multimodal (Vision)' : 'Universal / Text'
+            type: m.id.includes('vl') || m.id.includes('vision') || m.id.includes('gpt-4o') || m.id.includes('claude-3') || m.id.includes('gemini') ? 'Multimodal (Vision)' : 'Text/Reasoning'
           };
         });
         
         setAvailableModels(enrichedModels);
-        
-        // Auto-select free model if current isn't in list or is generic
         const freeModel = enrichedModels.find(m => m.costPer1M === 0);
         if (freeModel && !enrichedModels.find(m => m.id === modelName)) {
            setModelName(freeModel.id);
@@ -192,18 +184,27 @@ export default function AIChatApp() {
       currentSystemPrompt += "\n\nCRITICAL INSTRUCTION: You must think step-by-step before answering. Wrap your detailed reasoning process entirely inside <think> and </think> tags at the very beginning of your response, followed by your final answer.";
     }
 
+    // --- SMART VISION FILTER ---
+    // Checks if the current selected model has eyes. If not, it strips image data to prevent crashes!
+    const isVisionCapable = !!modelName.toLowerCase().match(/vl|vision|gpt-4o|claude-3|gemini|pixtral|llava|omni/);
+
     const apiPayload = [
       { role: 'system', content: currentSystemPrompt },
       ...[...messages, userMessage].reverse().map((msg) => {
-        // FIXED: Forcing ALL models to accept the Vision Payload format if an image is attached
         if (msg.role === 'user' && msg.attachedFile && msg.attachedFile.type !== 'text') {
-           return { 
-             role: 'user', 
-             content: [
-               { type: 'text', text: msg.text || "Analyze this image." }, 
-               { type: 'image_url', image_url: { url: `data:${msg.attachedFile.mime};base64,${msg.attachedFile.content}` } }
-             ] 
-           };
+           if (isVisionCapable) {
+             // Send full image array payload
+             return { 
+               role: 'user', 
+               content: [
+                 { type: 'text', text: msg.text || "Analyze this image." }, 
+                 { type: 'image_url', image_url: { url: `data:${msg.attachedFile.mime};base64,${msg.attachedFile.content}` } }
+               ] 
+             };
+           } else {
+             // Fallback for Text-Only models (prevents API rejection crash)
+             return { role: 'user', content: msg.text };
+           }
         }
         return { role: msg.role === 'assistant' ? 'assistant' : 'user', content: msg.text };
       })
@@ -249,8 +250,6 @@ export default function AIChatApp() {
     });
 
     es.addEventListener('error', (event) => {
-      // FIXED: Sometimes APIs close connection abruptly instead of sending [DONE]. 
-      // If we received text, assume it finished successfully. If 0 characters, it's a real crash.
       if (charCount > 0) {
         processSuccessfulCompletion();
       } else {
@@ -258,7 +257,7 @@ export default function AIChatApp() {
         setIsLoading(false);
         setMessages((prev) => {
           const updated = [...prev];
-          updated[0] = { ...updated[0], text: updated[0].text + "\n⚠️ Request Rejected. The selected model might not support image/binary payloads or the API key is restricted." };
+          updated[0] = { ...updated[0], text: updated[0].text + "\n⚠️ Request Rejected. Ensure API key has permissions for this model." };
           return updated;
         });
       }
@@ -279,8 +278,6 @@ export default function AIChatApp() {
         
         const mime = file.mimeType || '';
         const isText = mime.startsWith('text/') || mime.includes('json') || mime.includes('csv');
-        
-        // FIXED: Using Legacy FileSystem method for SDK 54+
         const content = await FileSystem.readAsStringAsync(file.uri, { encoding: isText ? FileSystem.EncodingType.UTF8 : FileSystem.EncodingType.Base64 });
         
         setAttachedFile({ name: file.name, type: isText ? 'text' : mime.startsWith('image/') ? 'image' : 'document', mime, content });
@@ -359,7 +356,20 @@ export default function AIChatApp() {
           </View>
         </View>
 
-        <FlatList ref={flatListRef} data={messages} keyExtractor={(item) => item.id} renderItem={renderMessage} inverted contentContainerStyle={styles.chatContainer} keyboardDismissMode="on-drag" />
+        {/* --- 120HZ OPTIMIZED ENGINE --- */}
+        <FlatList 
+          ref={flatListRef} 
+          data={messages} 
+          keyExtractor={(item) => item.id} 
+          renderItem={renderMessage} 
+          inverted 
+          contentContainerStyle={styles.chatContainer} 
+          keyboardDismissMode="on-drag"
+          removeClippedSubviews={Platform.OS === 'android'}
+          initialNumToRender={15}
+          maxToRenderPerBatch={10}
+          windowSize={10}
+        />
 
         {attachedFile && (
           <View style={[styles.contextBanner, { backgroundColor: t.card, borderTopColor: t.border }]}>

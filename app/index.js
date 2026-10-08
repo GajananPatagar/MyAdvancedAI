@@ -16,9 +16,9 @@ import { initializeApp } from 'firebase/app';
 import { getFirestore, collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { getAuth, GoogleAuthProvider, signInWithCredential } from 'firebase/auth';
 
-// 1. FIREBASE CONFIGURATION (Secured via String Split)
+// 1. FIREBASE CONFIGURATION (Using GitHub Secrets)
 const firebaseConfig = {
-  apiKey: 'AIzaSyDCtuxd-BSO' + 'J622lHBrQ0GZJgy_AXB5R_s',
+  apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY,
   authDomain: "bestie-ai-app.firebaseapp.com",
   projectId: "bestie-ai-app",
   storageBucket: "bestie-ai-app.firebasestorage.app",
@@ -30,9 +30,8 @@ const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
 
-// 2. GOOGLE WEB CLIENT ID
+// 2. GOOGLE WEB CLIENT ID (Public ID, Safe in code)
 const GOOGLE_WEB_CLIENT_ID = '585615829430-r3r9okm0mfumb3dkri2o2megd8hpk2us.apps.googleusercontent.com';
-
 GoogleSignin.configure({ webClientId: GOOGLE_WEB_CLIENT_ID });
 
 // --- ROMANTIC THEMES & WALLPAPERS ---
@@ -73,8 +72,8 @@ export default function BestieApp() {
 
   const flatListRef = useRef(null);
 
-  // --- GOOGLE GEMINI ENGINE (Secured via String Split) ---
-  const apiKey = 'AQ.Ab8RN6Iuffua' + 'hKH5CCqDZEigSOukrmexxjfKGMnOF_p3DPOUHw'; 
+  // --- GOOGLE GEMINI ENGINE (Using GitHub Secrets) ---
+  const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY; 
   const baseUrl = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
   const modelName = 'gemini-1.5-flash'; 
 
@@ -186,6 +185,11 @@ CRITICAL RULES:
   const sendMessage = async () => {
     if (!inputText.trim()) return;
 
+    if (!apiKey) {
+      Alert.alert('Secret Missing', 'GitHub failed to inject your API key into the app. Please check your GitHub Secrets.');
+      return;
+    }
+
     let finalPrompt = inputText;
     if (replyingTo) finalPrompt = `[Replying to your message: "${replyingTo.text}"]\n${inputText}`;
 
@@ -218,7 +222,13 @@ CRITICAL RULES:
         body: JSON.stringify({ model: modelName, messages: apiPayload })
       });
       
-      const data = await response.json();
+      const responseText = await response.text();
+      
+      if (!response.ok) {
+        throw new Error(`Google Error: ${response.status} - ${responseText.substring(0, 100)}`);
+      }
+
+      const data = JSON.parse(responseText);
       
       if (data.choices && data.choices.length > 0) {
         const currentAIResponse = data.choices[0].message.content;
@@ -227,10 +237,10 @@ CRITICAL RULES:
         setMessages((prev) => [{ _id: aiMessageId, role: 'assistant', text: currentAIResponse, createdAt: new Date().toISOString() }, ...prev]);
         saveMessageToFirebase(profile.name, { _id: aiMessageId, role: 'assistant', text: currentAIResponse, createdAt: new Date().toISOString() });
       } else {
-        throw new Error("No choices returned");
+        throw new Error("No choices returned from AI.");
       }
     } catch (e) {
-      setMessages((prev) => [{ _id: Date.now().toString(), role: 'assistant', text: "Sorry bestie, my network is acting up! 🥺 Try again?", createdAt: new Date().toISOString() }, ...prev]);
+      setMessages((prev) => [{ _id: Date.now().toString(), role: 'assistant', text: `Sorry bestie, error: ${e.message}`, createdAt: new Date().toISOString() }, ...prev]);
     } finally {
       setIsTyping(false);
     }

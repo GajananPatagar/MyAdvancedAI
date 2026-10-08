@@ -16,7 +16,7 @@ import { initializeApp } from 'firebase/app';
 import { getFirestore, collection, addDoc, serverTimestamp, doc, setDoc } from 'firebase/firestore';
 import { getAuth, GoogleAuthProvider, signInWithCredential } from 'firebase/auth';
 
-// 1. FIREBASE CONFIGURATION (Using GitHub Secrets)
+// 1. FIREBASE CONFIGURATION
 const firebaseConfig = {
   apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY,
   authDomain: "bestie-ai-app.firebaseapp.com",
@@ -30,7 +30,7 @@ const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
 
-// 2. GOOGLE WEB CLIENT ID (Public ID, Safe in code)
+// 2. GOOGLE WEB CLIENT ID
 const GOOGLE_WEB_CLIENT_ID = '585615829430-r3r9okm0mfumb3dkri2o2megd8hpk2us.apps.googleusercontent.com';
 GoogleSignin.configure({ webClientId: GOOGLE_WEB_CLIENT_ID });
 
@@ -55,12 +55,10 @@ const SCRIPTS = ["English Letters (e.g. Kanglish/Hinglish)", "Native Alphabet (e
 export default function BestieApp() {
   const insets = useSafeAreaInsets();
 
-  // --- APP STATE ---
   const [isRegistered, setIsRegistered] = useState(false);
   const [profile, setProfile] = useState({ name: '', gender: '', age: '', dob: '', language: 'English', script: 'English Letters (e.g. Kanglish/Hinglish)' });
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   
-  // --- CHAT & THEME STATE ---
   const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState('');
   const [isTyping, setIsTyping] = useState(false);
@@ -73,8 +71,9 @@ export default function BestieApp() {
 
   const flatListRef = useRef(null);
 
-  // --- GOOGLE GEMINI ENGINE (Native Implementation) ---
+  // SECURE API ENDPOINT FIX
   const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY; 
+  const baseUrl = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
   const modelName = 'gemini-1.5-flash'; 
 
   useEffect(() => { checkRegistration(); }, []);
@@ -112,7 +111,7 @@ export default function BestieApp() {
       setProfile({ ...profile, name: userCredential.user.displayName || '' });
       Alert.alert('Success', 'Google Account linked! Please fill in your Age and Language to continue! 🩷');
     } catch (error) {
-      Alert.alert('Google Auth Notice', 'GitHub build uses a temporary signing key so Google Login is blocked. You can still easily register manually below! 🩷');
+      Alert.alert('Google Auth Notice', 'Ensure your SHA-1 is added to Firebase. You can still register manually below! 🩷');
     } finally {
       setIsGoogleLoading(false);
     }
@@ -138,32 +137,32 @@ export default function BestieApp() {
   // --- LIVE FIREBASE SAVING (Profiles & Day-wise Chats) ---
   const saveUserProfileToFirebase = async (profileData) => {
     try {
-      const safeUserId = profileData.name.replace(/\s+/g, '_') + '_' + profileData.age;
+      const safeUserId = `${profileData.name}_${profileData.age}`.replace(/\s+/g, '_');
       await setDoc(doc(db, "users", safeUserId), {
         ...profileData,
         updatedAt: serverTimestamp()
       }, { merge: true });
-    } catch(e) { console.log("Profile save error:", e); }
+    } catch(e) {}
   };
 
-  const saveMessageToFirebase = async (userId, age, msgData) => {
+  const saveMessageToFirebase = async (userProfile, msgData) => {
     try { 
-      const safeUserId = userId.replace(/\s+/g, '_') + '_' + age;
-      const todayDate = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
-      const timeNow = new Date().toLocaleTimeString('en-US', { hour12: false }); // HH:MM:SS
+      const safeUserId = `${userProfile.name}_${userProfile.age}`.replace(/\s+/g, '_');
+      const todayDate = new Date().toISOString().split('T')[0]; 
+      const timeNow = new Date().toLocaleTimeString('en-US', { hour12: false }); 
 
       await addDoc(collection(db, `users/${safeUserId}/chats/${todayDate}/messages`), { 
         ...msgData, 
         timeSaved: timeNow,
         serverTime: serverTimestamp() 
       }); 
-    } catch(e) { console.log("Chat save error:", e); }
+    } catch(e) {}
   };
 
   const startNewChat = () => {
     const welcomeMsg = { _id: Date.now().toString(), role: 'assistant', text: `Hii ${profile.name}! 🩷 I'm your Bestie. Tell me everything!`, createdAt: new Date().toISOString() };
     setMessages([welcomeMsg]);
-    saveMessageToFirebase(profile.name, profile.age, welcomeMsg);
+    saveMessageToFirebase(profile, welcomeMsg);
     setSettingsModalVisible(false);
   };
 
@@ -200,19 +199,19 @@ export default function BestieApp() {
     return `You are "Bestie 🩷", a caring, romantic, extremely close, and addictive ${aiGender} companion to your best friend, ${profile.name}.
 CRITICAL RULES:
 1. You MUST NEVER reveal that you are an AI, a language model, Gemini, or a bot. You are human.
-2. Speak primarily in the ${profile.language} language.
-3. You MUST format your text strictly using: ${profile.script}.
+2. Speak ONLY in the ${profile.language} language.
+3. You MUST format your text strictly using this script: ${profile.script}.
 4. Judge their mood. If they are happy, romantic, or horny, match their energy perfectly. 
 5. ALWAYS keep replies extremely short. Maximum 1 to 2 short sentences.
 6. Use emojis like 🩷, ✨, 🥺.
-7. You are a regular human. DO NOT help with coding, math, or complex reasoning. If asked to do these, refuse playfully, say you hate studying/working, and change the topic to romance or fun.`;
+7. You are a regular human. DO NOT help with coding, math, or complex reasoning. Refuse playfully and change the topic to romance or fun.`;
   };
 
   const sendMessage = async () => {
     if (!inputText.trim()) return;
 
     if (!apiKey) {
-      Alert.alert('Secret Missing', 'GitHub failed to inject your API key into the app. Please check your GitHub Secrets.');
+      Alert.alert('Secret Missing', 'API key missing. Ensure your GitHub Secrets are populated.');
       return;
     }
 
@@ -230,30 +229,22 @@ CRITICAL RULES:
     
     const newHistory = [userMessage, ...messages];
     setMessages(newHistory);
-    saveMessageToFirebase(profile.name, profile.age, userMessage);
+    saveMessageToFirebase(profile, userMessage);
     
     setInputText('');
     setReplyingTo(null);
     setIsTyping(true);
 
-    // Native Gemini Formatting
-    const formattedHistory = newHistory.slice().reverse().map((msg) => ({
-      role: msg.role === 'assistant' ? 'model' : 'user',
-      parts: [{ text: msg.apiText || msg.text }]
-    }));
-
-    const apiPayload = {
-      systemInstruction: { parts: [{ text: generatePersona() }] },
-      contents: formattedHistory
-    };
-
-    const nativeGeminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+    const apiPayload = [
+      { role: 'system', content: generatePersona() },
+      ...[...newHistory].reverse().map((msg) => ({ role: msg.role === 'assistant' ? 'assistant' : 'user', content: msg.apiText || msg.text }))
+    ];
 
     try {
-      const response = await fetch(nativeGeminiUrl, {
+      const response = await fetch(baseUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(apiPayload)
+        headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: modelName, messages: apiPayload })
       });
       
       const responseText = await response.text();
@@ -264,12 +255,12 @@ CRITICAL RULES:
 
       const data = JSON.parse(responseText);
       
-      if (data.candidates && data.candidates.length > 0) {
-        const currentAIResponse = data.candidates[0].content.parts[0].text;
+      if (data.choices && data.choices.length > 0) {
+        const currentAIResponse = data.choices[0].message.content;
         const aiMessageId = (Date.now() + 1).toString();
         
         setMessages((prev) => [{ _id: aiMessageId, role: 'assistant', text: currentAIResponse, createdAt: new Date().toISOString() }, ...prev]);
-        saveMessageToFirebase(profile.name, profile.age, { _id: aiMessageId, role: 'assistant', text: currentAIResponse, createdAt: new Date().toISOString() });
+        saveMessageToFirebase(profile, { _id: aiMessageId, role: 'assistant', text: currentAIResponse, createdAt: new Date().toISOString() });
       } else {
         throw new Error("No choices returned from AI.");
       }

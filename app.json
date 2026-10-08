@@ -12,9 +12,7 @@
       "resizeMode": "contain",
       "backgroundColor": "#fdf2f8"
     },
-    "assetBundlePatterns": [
-      "**/*"
-    ],
+    "assetBundlePatterns": ["**/*"],
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.gajananpatagar.myadvancedai"
@@ -23,20 +21,11 @@
       "package": "com.gajananpatagar.myadvancedai",
       "softwareKeyboardLayoutMode": "resize",
       "googleServicesFile": "./google-services.json",
-      "permissions": [
-        "android.permission.VIBRATE",
-        "android.permission.READ_EXTERNAL_STORAGE",
-        "android.permission.RECORD_AUDIO"
-      ]
+      "permissions": ["VIBRATE", "READ_EXTERNAL_STORAGE"]
     },
     "plugins": [
       "@react-native-google-signin/google-signin",
       "expo-image-picker"
-    ],
-    "extra": {
-      "eas": {
-        "projectId": "dc9de076-4437-46a1-9dbc-8af671c3d1ee"
-      }
-    }
+    ]
   }
 }

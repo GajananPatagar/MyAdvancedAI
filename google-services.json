@@ -15,11 +15,11 @@
       },
       "oauth_client": [
         {
-          "client_id": "585615829430-2o5pll5qkto2uoanqsdq5n59i22auhqb.apps.googleusercontent.com",
+          "client_id": "585615829430-sftbh72tmac8fmg9ia4601qjt1bonvvu.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
             "package_name": "com.gajananpatagar.myadvancedai",
-            "certificate_hash": "906e1a2cd6030a202533e0da30cc43f3558babea"
+            "certificate_hash": "494c3111e3a1300dff8e8ec9955dfab0dc13cda2"
           }
         },
         {

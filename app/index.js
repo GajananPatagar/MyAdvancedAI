@@ -71,7 +71,7 @@ export default function BestieApp() {
 
   const flatListRef = useRef(null);
 
-  // SECURE API ENDPOINT FIX
+  // SECURE & STABLE API ENDPOINT (Fixes 404 Error)
   const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY; 
   const baseUrl = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
   const modelName = 'gemini-1.5-flash'; 
@@ -111,7 +111,7 @@ export default function BestieApp() {
       setProfile({ ...profile, name: userCredential.user.displayName || '' });
       Alert.alert('Success', 'Google Account linked! Please fill in your Age and Language to continue! 🩷');
     } catch (error) {
-      Alert.alert('Google Auth Notice', 'Ensure your SHA-1 is added to Firebase. You can still register manually below! 🩷');
+      Alert.alert('Google Auth Notice', 'Ensure your SHA-1 is added to Firebase! You can still register manually below to test the chat. 🩷');
     } finally {
       setIsGoogleLoading(false);
     }

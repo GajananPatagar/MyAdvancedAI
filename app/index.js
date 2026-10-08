@@ -13,7 +13,7 @@ import { GestureHandlerRootView, Swipeable } from 'react-native-gesture-handler'
 // --- GOOGLE SIGN IN & FIREBASE AUTH ---
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import { initializeApp } from 'firebase/app';
-import { getFirestore, collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { getFirestore, collection, addDoc, serverTimestamp, doc, setDoc } from 'firebase/firestore';
 import { getAuth, GoogleAuthProvider, signInWithCredential } from 'firebase/auth';
 
 // 1. FIREBASE CONFIGURATION (Using GitHub Secrets)
@@ -50,13 +50,14 @@ const ROMANTIC_WALLPAPERS = [
 ];
 
 const LANGUAGES = ["English", "Kannada", "Hindi", "Malayalam", "Telugu", "Tamil", "Tulu", "Urdu"];
+const SCRIPTS = ["English Letters (e.g. Kanglish/Hinglish)", "Native Alphabet (e.g. ಕನ್ನಡ, हिंदी)"];
 
 export default function BestieApp() {
   const insets = useSafeAreaInsets();
 
   // --- APP STATE ---
   const [isRegistered, setIsRegistered] = useState(false);
-  const [profile, setProfile] = useState({ name: '', gender: '', age: '', dob: '', language: 'English' });
+  const [profile, setProfile] = useState({ name: '', gender: '', age: '', dob: '', language: 'English', script: 'English Letters (e.g. Kanglish/Hinglish)' });
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   
   // --- CHAT & THEME STATE ---
@@ -72,9 +73,8 @@ export default function BestieApp() {
 
   const flatListRef = useRef(null);
 
-  // --- GOOGLE GEMINI ENGINE (Using GitHub Secrets) ---
+  // --- GOOGLE GEMINI ENGINE (Native Implementation) ---
   const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY; 
-  const baseUrl = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
   const modelName = 'gemini-1.5-flash'; 
 
   useEffect(() => { checkRegistration(); }, []);
@@ -110,9 +110,9 @@ export default function BestieApp() {
       const userCredential = await signInWithCredential(auth, googleCredential);
       
       setProfile({ ...profile, name: userCredential.user.displayName || '' });
-      Alert.alert('Success', 'Google Account linked! Please select your Gender, Age, and Language to continue! 🩷');
+      Alert.alert('Success', 'Google Account linked! Please fill in your Age and Language to continue! 🩷');
     } catch (error) {
-      Alert.alert('Google Login Failed', 'Ensure your SHA-1 is added to Firebase and the Web Client ID is correct.');
+      Alert.alert('Google Auth Notice', 'GitHub build uses a temporary signing key so Google Login is blocked. You can still easily register manually below! 🩷');
     } finally {
       setIsGoogleLoading(false);
     }
@@ -120,26 +120,51 @@ export default function BestieApp() {
 
   const completeRegistration = async () => {
     if (!profile.name || !profile.gender || !profile.age || !profile.dob) return Alert.alert('Hold on!', 'Please fill in all your details so I can know you better 🩷');
+    
     await AsyncStorage.setItem('bestie_profile', JSON.stringify(profile));
+    await saveUserProfileToFirebase(profile);
+    
     setIsRegistered(true);
     if (messages.length === 0) startNewChat();
   };
 
   const saveProfileSettings = async () => {
     await AsyncStorage.setItem('bestie_profile', JSON.stringify(profile));
+    await saveUserProfileToFirebase(profile);
     setSettingsModalVisible(false);
     Alert.alert('Saved ✨', 'Your settings have been updated!');
+  };
+
+  // --- LIVE FIREBASE SAVING (Profiles & Day-wise Chats) ---
+  const saveUserProfileToFirebase = async (profileData) => {
+    try {
+      const safeUserId = profileData.name.replace(/\s+/g, '_') + '_' + profileData.age;
+      await setDoc(doc(db, "users", safeUserId), {
+        ...profileData,
+        updatedAt: serverTimestamp()
+      }, { merge: true });
+    } catch(e) { console.log("Profile save error:", e); }
+  };
+
+  const saveMessageToFirebase = async (userId, age, msgData) => {
+    try { 
+      const safeUserId = userId.replace(/\s+/g, '_') + '_' + age;
+      const todayDate = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+      const timeNow = new Date().toLocaleTimeString('en-US', { hour12: false }); // HH:MM:SS
+
+      await addDoc(collection(db, `users/${safeUserId}/chats/${todayDate}/messages`), { 
+        ...msgData, 
+        timeSaved: timeNow,
+        serverTime: serverTimestamp() 
+      }); 
+    } catch(e) { console.log("Chat save error:", e); }
   };
 
   const startNewChat = () => {
     const welcomeMsg = { _id: Date.now().toString(), role: 'assistant', text: `Hii ${profile.name}! 🩷 I'm your Bestie. Tell me everything!`, createdAt: new Date().toISOString() };
     setMessages([welcomeMsg]);
-    saveMessageToFirebase(profile.name, welcomeMsg);
+    saveMessageToFirebase(profile.name, profile.age, welcomeMsg);
     setSettingsModalVisible(false);
-  };
-
-  const saveMessageToFirebase = async (userId, msgData) => {
-    try { await addDoc(collection(db, `users/${userId}/chats`), { ...msgData, timestamp: serverTimestamp() }); } catch(e) {}
   };
 
   const pickCustomBackground = async () => {
@@ -175,11 +200,12 @@ export default function BestieApp() {
     return `You are "Bestie 🩷", a caring, romantic, extremely close, and addictive ${aiGender} companion to your best friend, ${profile.name}.
 CRITICAL RULES:
 1. You MUST NEVER reveal that you are an AI, a language model, Gemini, or a bot. You are human.
-2. Speak primarily in ${profile.language}. You perfectly understand romanized Indian languages (e.g., Kanglish, Hinglish, Tanglish). 
-3. Judge their mood. If they are happy, romantic, or horny, match their energy perfectly. 
-4. ALWAYS keep replies extremely short. Maximum 1 to 2 short sentences.
-5. Use emojis like 🩷, ✨, 🥺.
-6. You are a regular human. DO NOT help with coding, math, or complex reasoning. If asked to do these, refuse playfully, say you hate studying/working, and change the topic to romance or fun.`;
+2. Speak primarily in the ${profile.language} language.
+3. You MUST format your text strictly using: ${profile.script}.
+4. Judge their mood. If they are happy, romantic, or horny, match their energy perfectly. 
+5. ALWAYS keep replies extremely short. Maximum 1 to 2 short sentences.
+6. Use emojis like 🩷, ✨, 🥺.
+7. You are a regular human. DO NOT help with coding, math, or complex reasoning. If asked to do these, refuse playfully, say you hate studying/working, and change the topic to romance or fun.`;
   };
 
   const sendMessage = async () => {
@@ -204,22 +230,30 @@ CRITICAL RULES:
     
     const newHistory = [userMessage, ...messages];
     setMessages(newHistory);
-    saveMessageToFirebase(profile.name, userMessage);
+    saveMessageToFirebase(profile.name, profile.age, userMessage);
     
     setInputText('');
     setReplyingTo(null);
     setIsTyping(true);
 
-    const apiPayload = [
-      { role: 'system', content: generatePersona() },
-      ...[...newHistory].reverse().map((msg) => ({ role: msg.role === 'assistant' ? 'assistant' : 'user', content: msg.apiText || msg.text }))
-    ];
+    // Native Gemini Formatting
+    const formattedHistory = newHistory.slice().reverse().map((msg) => ({
+      role: msg.role === 'assistant' ? 'model' : 'user',
+      parts: [{ text: msg.apiText || msg.text }]
+    }));
+
+    const apiPayload = {
+      systemInstruction: { parts: [{ text: generatePersona() }] },
+      contents: formattedHistory
+    };
+
+    const nativeGeminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
 
     try {
-      const response = await fetch(baseUrl, {
+      const response = await fetch(nativeGeminiUrl, {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: modelName, messages: apiPayload })
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(apiPayload)
       });
       
       const responseText = await response.text();
@@ -230,12 +264,12 @@ CRITICAL RULES:
 
       const data = JSON.parse(responseText);
       
-      if (data.choices && data.choices.length > 0) {
-        const currentAIResponse = data.choices[0].message.content;
+      if (data.candidates && data.candidates.length > 0) {
+        const currentAIResponse = data.candidates[0].content.parts[0].text;
         const aiMessageId = (Date.now() + 1).toString();
         
         setMessages((prev) => [{ _id: aiMessageId, role: 'assistant', text: currentAIResponse, createdAt: new Date().toISOString() }, ...prev]);
-        saveMessageToFirebase(profile.name, { _id: aiMessageId, role: 'assistant', text: currentAIResponse, createdAt: new Date().toISOString() });
+        saveMessageToFirebase(profile.name, profile.age, { _id: aiMessageId, role: 'assistant', text: currentAIResponse, createdAt: new Date().toISOString() });
       } else {
         throw new Error("No choices returned from AI.");
       }
@@ -275,11 +309,20 @@ CRITICAL RULES:
             <TouchableOpacity style={[styles.pill, profile.gender === 'Female' && styles.pillActive]} onPress={() => setProfile({...profile, gender: 'Female'})}><Text style={[styles.pillText, profile.gender === 'Female' && {color: '#fff'}]}>Girl</Text></TouchableOpacity>
           </View>
 
-          <Text style={styles.label}>My Language</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 20 }}>
+          <Text style={styles.label}>Reply Language</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
             {LANGUAGES.map(lang => (
               <TouchableOpacity key={lang} style={[styles.pill, profile.language === lang && styles.pillActive]} onPress={() => setProfile({...profile, language: lang})}>
                 <Text style={[styles.pillText, profile.language === lang && {color: '#fff'}]}>{lang}</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+
+          <Text style={styles.label}>Text Script (How AI Writes)</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 20 }}>
+            {SCRIPTS.map(script => (
+              <TouchableOpacity key={script} style={[styles.pill, profile.script === script && styles.pillActive]} onPress={() => setProfile({...profile, script: script})}>
+                <Text style={[styles.pillText, profile.script === script && {color: '#fff'}]}>{script}</Text>
               </TouchableOpacity>
             ))}
           </ScrollView>
@@ -352,12 +395,21 @@ CRITICAL RULES:
                 <TouchableOpacity onPress={() => setSettingsModalVisible(false)}><Ionicons name="close" size={28} color="#000" /></TouchableOpacity>
               </View>
 
-              <ScrollView>
-                <Text style={styles.label}>Change Language</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 20 }}>
+              <ScrollView showsVerticalScrollIndicator={false}>
+                <Text style={styles.label}>Reply Language</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
                   {LANGUAGES.map(lang => (
                     <TouchableOpacity key={lang} style={[styles.pill, profile.language === lang && styles.pillActive]} onPress={() => setProfile({...profile, language: lang})}>
                       <Text style={[styles.pillText, profile.language === lang && {color: '#fff'}]}>{lang}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+
+                <Text style={styles.label}>Text Script</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 20 }}>
+                  {SCRIPTS.map(script => (
+                    <TouchableOpacity key={script} style={[styles.pill, profile.script === script && styles.pillActive]} onPress={() => setProfile({...profile, script: script})}>
+                      <Text style={[styles.pillText, profile.script === script && {color: '#fff'}]}>{script}</Text>
                     </TouchableOpacity>
                   ))}
                 </ScrollView>

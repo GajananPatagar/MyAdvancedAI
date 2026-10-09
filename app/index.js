@@ -64,7 +64,9 @@ export default function BestieApp() {
   const [settingsModalVisible, setSettingsModalVisible] = useState(false);
   const flatListRef = useRef(null);
 
+  // ACTUALLY USING THE STABLE OPENAI COMPATIBLE ENDPOINT
   const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY; 
+  const baseUrl = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
   const modelName = 'gemini-1.5-flash'; 
 
   useEffect(() => { checkRegistration(); }, []);
@@ -189,15 +191,6 @@ CRITICAL RULES:
       return;
     }
 
-    // THE API KEY MIX-UP DETECTOR
-    if (apiKey === process.env.EXPO_PUBLIC_FIREBASE_API_KEY) {
-      Alert.alert(
-        'API Key Mix-up Detected! 🚨',
-        'You accidentally pasted your Firebase API Key into your Gemini GitHub Secret! Please go to GitHub -> Secrets and paste the correct key from Google AI Studio into GEMINI_API_KEY.'
-      );
-      return;
-    }
-
     let finalPrompt = inputText;
     if (replyingTo) finalPrompt = `[Replying to your message: "${replyingTo.text}"]\n${inputText}`;
 
@@ -210,26 +203,31 @@ CRITICAL RULES:
     setReplyingTo(null);
     setIsTyping(true);
 
-    const nativeGeminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
-    const formattedHistory = newHistory.slice().reverse().map((msg) => ({
-      role: msg.role === 'assistant' ? 'model' : 'user',
-      parts: [{ text: msg.apiText || msg.text }]
-    }));
-    const apiPayload = { systemInstruction: { parts: [{ text: generatePersona() }] }, contents: formattedHistory };
+    // OPENAI COMPATIBLE PAYLOAD
+    const apiPayload = [
+      { role: 'system', content: generatePersona() },
+      ...[...newHistory].reverse().map((msg) => ({ role: msg.role === 'assistant' ? 'assistant' : 'user', content: msg.apiText || msg.text }))
+    ];
 
     try {
-      const response = await fetch(nativeGeminiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(apiPayload) });
+      const response = await fetch(baseUrl, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: modelName, messages: apiPayload })
+      });
+      
       const responseText = await response.text();
       
       if (!response.ok) {
-        if (response.status === 404) throw new Error("Google Error 404: The Gemini key you are using does not have access to this model. Are you absolutely sure this key is from Google AI Studio and not Google Cloud?");
         throw new Error(`Google Error: ${response.status} - ${responseText.substring(0, 100)}`);
       }
 
       const data = JSON.parse(responseText);
-      if (data.candidates && data.candidates.length > 0) {
-        const currentAIResponse = data.candidates[0].content.parts[0].text;
+      
+      if (data.choices && data.choices.length > 0) {
+        const currentAIResponse = data.choices[0].message.content;
         const aiMessageId = (Date.now() + 1).toString();
+        
         setMessages((prev) => [{ _id: aiMessageId, role: 'assistant', text: currentAIResponse, createdAt: new Date().toISOString() }, ...prev]);
         saveMessageToFirebase(profile, { _id: aiMessageId, role: 'assistant', text: currentAIResponse, createdAt: new Date().toISOString() });
       } else {

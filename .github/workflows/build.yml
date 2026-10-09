@@ -43,9 +43,9 @@ jobs:
         working-directory: android
         run: chmod +x ./gradlew
 
-      - name: 🔨 Compile Production APK (Forced Keystore Override)
+      - name: 🔨 Compile Production APK
         working-directory: android
-        run: ./gradlew assembleRelease -Pandroid.injected.signing.store.file=../bestie.keystore -Pandroid.injected.signing.store.password=bestie123 -Pandroid.injected.signing.key.alias=bestie -Pandroid.injected.signing.key.password=bestie123
+        run: ./gradlew assembleRelease -Pandroid.injected.signing.store.file=${{ github.workspace }}/bestie.keystore -Pandroid.injected.signing.store.password=bestie123 -Pandroid.injected.signing.key.alias=bestie -Pandroid.injected.signing.key.password=bestie123
 
       - name: 🚀 Upload APK Artifact
         uses: actions/upload-artifact@v4

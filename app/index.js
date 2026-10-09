@@ -16,7 +16,6 @@ import { initializeApp } from 'firebase/app';
 import { getFirestore, collection, addDoc, serverTimestamp, doc, setDoc } from 'firebase/firestore';
 import { getAuth, GoogleAuthProvider, signInWithCredential } from 'firebase/auth';
 
-// 1. FIREBASE CONFIGURATION
 const firebaseConfig = {
   apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY,
   authDomain: "bestie-ai-app.firebaseapp.com",
@@ -30,11 +29,9 @@ const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
 
-// 2. GOOGLE WEB CLIENT ID
 const GOOGLE_WEB_CLIENT_ID = '585615829430-r3r9okm0mfumb3dkri2o2megd8hpk2us.apps.googleusercontent.com';
 GoogleSignin.configure({ webClientId: GOOGLE_WEB_CLIENT_ID });
 
-// --- ROMANTIC THEMES & WALLPAPERS ---
 const THEMES = [
   { id: '1', name: 'Valentine Red', bg: '#ef4444', bubbleUser: '#b91c1c', bubbleAI: '#fca5a5', textAI: '#450a0a' },
   { id: '2', name: 'Soft Pink', bg: '#fdf2f8', bubbleUser: '#db2777', bubbleAI: '#fbcfe8', textAI: '#831843' },
@@ -54,26 +51,20 @@ const SCRIPTS = ["English Letters (e.g. Kanglish/Hinglish)", "Native Alphabet (e
 
 export default function BestieApp() {
   const insets = useSafeAreaInsets();
-
   const [isRegistered, setIsRegistered] = useState(false);
   const [profile, setProfile] = useState({ name: '', gender: '', age: '', dob: '', language: 'English', script: 'English Letters (e.g. Kanglish/Hinglish)' });
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
-  
   const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [replyingTo, setReplyingTo] = useState(null);
-  
   const [currentTheme, setCurrentTheme] = useState(THEMES[1]); 
   const [customBg, setCustomBg] = useState(null);
   const [themeModalVisible, setThemeModalVisible] = useState(false);
   const [settingsModalVisible, setSettingsModalVisible] = useState(false);
-
   const flatListRef = useRef(null);
 
-  // SECURE & STABLE API ENDPOINT (Fixes 404 Error)
   const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY; 
-  const baseUrl = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
   const modelName = 'gemini-1.5-flash'; 
 
   useEffect(() => { checkRegistration(); }, []);
@@ -83,11 +74,7 @@ export default function BestieApp() {
       const storedProfile = await AsyncStorage.getItem('bestie_profile');
       const storedTheme = await AsyncStorage.getItem('bestie_theme');
       const storedBg = await AsyncStorage.getItem('bestie_custom_bg');
-
-      if (storedProfile) {
-        setProfile(JSON.parse(storedProfile));
-        setIsRegistered(true);
-      }
+      if (storedProfile) { setProfile(JSON.parse(storedProfile)); setIsRegistered(true); }
       if (storedTheme) setCurrentTheme(JSON.parse(storedTheme));
       if (storedBg) setCustomBg(storedBg);
     } catch (e) {}
@@ -107,11 +94,10 @@ export default function BestieApp() {
       const userInfo = await GoogleSignin.signIn();
       const googleCredential = GoogleAuthProvider.credential(userInfo.idToken);
       const userCredential = await signInWithCredential(auth, googleCredential);
-      
       setProfile({ ...profile, name: userCredential.user.displayName || '' });
       Alert.alert('Success', 'Google Account linked! Please fill in your Age and Language to continue! 🩷');
     } catch (error) {
-      Alert.alert('Google Auth Notice', 'Ensure your SHA-1 is added to Firebase! You can still register manually below to test the chat. 🩷');
+      Alert.alert('Google Auth Notice', `Ensure your SHA-1 is added to Firebase. You can still register manually below! 🩷\n\nError: ${error.message}`);
     } finally {
       setIsGoogleLoading(false);
     }
@@ -119,10 +105,8 @@ export default function BestieApp() {
 
   const completeRegistration = async () => {
     if (!profile.name || !profile.gender || !profile.age || !profile.dob) return Alert.alert('Hold on!', 'Please fill in all your details so I can know you better 🩷');
-    
     await AsyncStorage.setItem('bestie_profile', JSON.stringify(profile));
     await saveUserProfileToFirebase(profile);
-    
     setIsRegistered(true);
     if (messages.length === 0) startNewChat();
   };
@@ -134,14 +118,10 @@ export default function BestieApp() {
     Alert.alert('Saved ✨', 'Your settings have been updated!');
   };
 
-  // --- LIVE FIREBASE SAVING (Profiles & Day-wise Chats) ---
   const saveUserProfileToFirebase = async (profileData) => {
     try {
       const safeUserId = `${profileData.name}_${profileData.age}`.replace(/\s+/g, '_');
-      await setDoc(doc(db, "users", safeUserId), {
-        ...profileData,
-        updatedAt: serverTimestamp()
-      }, { merge: true });
+      await setDoc(doc(db, "users", safeUserId), { ...profileData, updatedAt: serverTimestamp() }, { merge: true });
     } catch(e) {}
   };
 
@@ -150,12 +130,7 @@ export default function BestieApp() {
       const safeUserId = `${userProfile.name}_${userProfile.age}`.replace(/\s+/g, '_');
       const todayDate = new Date().toISOString().split('T')[0]; 
       const timeNow = new Date().toLocaleTimeString('en-US', { hour12: false }); 
-
-      await addDoc(collection(db, `users/${safeUserId}/chats/${todayDate}/messages`), { 
-        ...msgData, 
-        timeSaved: timeNow,
-        serverTime: serverTimestamp() 
-      }); 
+      await addDoc(collection(db, `users/${safeUserId}/chats/${todayDate}/messages`), { ...msgData, timeSaved: timeNow, serverTime: serverTimestamp() }); 
     } catch(e) {}
   };
 
@@ -193,7 +168,6 @@ export default function BestieApp() {
     Alert.alert('Copied! ✨', 'Message copied to clipboard.');
   };
 
-  // --- THE AI BRAIN (SYSTEM PROMPT) ---
   const generatePersona = () => {
     const aiGender = profile.gender === 'Male' ? 'female' : 'male';
     return `You are "Bestie 🩷", a caring, romantic, extremely close, and addictive ${aiGender} companion to your best friend, ${profile.name}.
@@ -215,18 +189,19 @@ CRITICAL RULES:
       return;
     }
 
+    // THE API KEY MIX-UP DETECTOR
+    if (apiKey === process.env.EXPO_PUBLIC_FIREBASE_API_KEY) {
+      Alert.alert(
+        'API Key Mix-up Detected! 🚨',
+        'You accidentally pasted your Firebase API Key into your Gemini GitHub Secret! Please go to GitHub -> Secrets and paste the correct key from Google AI Studio into GEMINI_API_KEY.'
+      );
+      return;
+    }
+
     let finalPrompt = inputText;
     if (replyingTo) finalPrompt = `[Replying to your message: "${replyingTo.text}"]\n${inputText}`;
 
-    const userMessage = { 
-      _id: Date.now().toString(), 
-      role: 'user', 
-      text: inputText, 
-      apiText: finalPrompt, 
-      replyContext: replyingTo ? replyingTo.text : null,
-      createdAt: new Date().toISOString() 
-    };
-    
+    const userMessage = { _id: Date.now().toString(), role: 'user', text: inputText, apiText: finalPrompt, replyContext: replyingTo ? replyingTo.text : null, createdAt: new Date().toISOString() };
     const newHistory = [userMessage, ...messages];
     setMessages(newHistory);
     saveMessageToFirebase(profile, userMessage);
@@ -235,30 +210,26 @@ CRITICAL RULES:
     setReplyingTo(null);
     setIsTyping(true);
 
-    const apiPayload = [
-      { role: 'system', content: generatePersona() },
-      ...[...newHistory].reverse().map((msg) => ({ role: msg.role === 'assistant' ? 'assistant' : 'user', content: msg.apiText || msg.text }))
-    ];
+    const nativeGeminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+    const formattedHistory = newHistory.slice().reverse().map((msg) => ({
+      role: msg.role === 'assistant' ? 'model' : 'user',
+      parts: [{ text: msg.apiText || msg.text }]
+    }));
+    const apiPayload = { systemInstruction: { parts: [{ text: generatePersona() }] }, contents: formattedHistory };
 
     try {
-      const response = await fetch(baseUrl, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: modelName, messages: apiPayload })
-      });
-      
+      const response = await fetch(nativeGeminiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(apiPayload) });
       const responseText = await response.text();
       
       if (!response.ok) {
+        if (response.status === 404) throw new Error("Google Error 404: The Gemini key you are using does not have access to this model. Are you absolutely sure this key is from Google AI Studio and not Google Cloud?");
         throw new Error(`Google Error: ${response.status} - ${responseText.substring(0, 100)}`);
       }
 
       const data = JSON.parse(responseText);
-      
-      if (data.choices && data.choices.length > 0) {
-        const currentAIResponse = data.choices[0].message.content;
+      if (data.candidates && data.candidates.length > 0) {
+        const currentAIResponse = data.candidates[0].content.parts[0].text;
         const aiMessageId = (Date.now() + 1).toString();
-        
         setMessages((prev) => [{ _id: aiMessageId, role: 'assistant', text: currentAIResponse, createdAt: new Date().toISOString() }, ...prev]);
         saveMessageToFirebase(profile, { _id: aiMessageId, role: 'assistant', text: currentAIResponse, createdAt: new Date().toISOString() });
       } else {
@@ -271,53 +242,39 @@ CRITICAL RULES:
     }
   };
 
-  // --- SCREENS ---
   if (!isRegistered) {
     return (
       <View style={[styles.onboardContainer, { paddingTop: insets.top }]}>
         <Text style={styles.onboardTitle}>Bestie 🩷</Text>
         <Text style={styles.onboardSub}>Let's create your perfect companion.</Text>
-        
         <ScrollView style={styles.card} showsVerticalScrollIndicator={false}>
           <TouchableOpacity style={styles.googleBtn} onPress={signInWithGoogle} disabled={isGoogleLoading}>
             <Ionicons name="logo-google" size={20} color="#fff" style={{ marginRight: 10 }} />
             <Text style={styles.googleBtnText}>{isGoogleLoading ? 'Connecting...' : 'Continue with Google'}</Text>
           </TouchableOpacity>
-
           <View style={styles.dividerContainer}>
-            <View style={styles.dividerLine} />
-            <Text style={styles.dividerText}>OR COMPLETE PROFILE</Text>
-            <View style={styles.dividerLine} />
+            <View style={styles.dividerLine} /><Text style={styles.dividerText}>OR COMPLETE PROFILE</Text><View style={styles.dividerLine} />
           </View>
-
           <TextInput style={styles.input} placeholder="Your Name" placeholderTextColor="#a1a1aa" value={profile.name} onChangeText={(t) => setProfile({...profile, name: t})} />
           <TextInput style={styles.input} placeholder="Age" keyboardType="numeric" placeholderTextColor="#a1a1aa" value={profile.age} onChangeText={(t) => setProfile({...profile, age: t})} />
           <TextInput style={styles.input} placeholder="Date of Birth (DD/MM/YYYY)" keyboardType="numeric" placeholderTextColor="#a1a1aa" value={profile.dob} onChangeText={handleDobChange} maxLength={10} />
-          
           <Text style={styles.label}>I am a...</Text>
           <View style={styles.row}>
             <TouchableOpacity style={[styles.pill, profile.gender === 'Male' && styles.pillActive]} onPress={() => setProfile({...profile, gender: 'Male'})}><Text style={[styles.pillText, profile.gender === 'Male' && {color: '#fff'}]}>Boy</Text></TouchableOpacity>
             <TouchableOpacity style={[styles.pill, profile.gender === 'Female' && styles.pillActive]} onPress={() => setProfile({...profile, gender: 'Female'})}><Text style={[styles.pillText, profile.gender === 'Female' && {color: '#fff'}]}>Girl</Text></TouchableOpacity>
           </View>
-
           <Text style={styles.label}>Reply Language</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
             {LANGUAGES.map(lang => (
-              <TouchableOpacity key={lang} style={[styles.pill, profile.language === lang && styles.pillActive]} onPress={() => setProfile({...profile, language: lang})}>
-                <Text style={[styles.pillText, profile.language === lang && {color: '#fff'}]}>{lang}</Text>
-              </TouchableOpacity>
+              <TouchableOpacity key={lang} style={[styles.pill, profile.language === lang && styles.pillActive]} onPress={() => setProfile({...profile, language: lang})}><Text style={[styles.pillText, profile.language === lang && {color: '#fff'}]}>{lang}</Text></TouchableOpacity>
             ))}
           </ScrollView>
-
           <Text style={styles.label}>Text Script (How AI Writes)</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 20 }}>
             {SCRIPTS.map(script => (
-              <TouchableOpacity key={script} style={[styles.pill, profile.script === script && styles.pillActive]} onPress={() => setProfile({...profile, script: script})}>
-                <Text style={[styles.pillText, profile.script === script && {color: '#fff'}]}>{script}</Text>
-              </TouchableOpacity>
+              <TouchableOpacity key={script} style={[styles.pill, profile.script === script && styles.pillActive]} onPress={() => setProfile({...profile, script: script})}><Text style={[styles.pillText, profile.script === script && {color: '#fff'}]}>{script}</Text></TouchableOpacity>
             ))}
           </ScrollView>
-
           <TouchableOpacity style={styles.loginBtn} onPress={completeRegistration}>
             <Text style={styles.loginBtnText}>Meet My Bestie ✨</Text>
           </TouchableOpacity>
@@ -333,11 +290,8 @@ CRITICAL RULES:
           <ImageBackground source={{ uri: customBg }} style={{ flex: 1 }} blurRadius={2}>
             <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.3)' }}>{renderChatInterface()}</View>
           </ImageBackground>
-        ) : (
-          renderChatInterface()
-        )}
+        ) : renderChatInterface()}
 
-        {/* THEMES MODAL */}
         <Modal visible={themeModalVisible} animationType="slide" transparent>
           <View style={styles.modalOverlay}>
             <View style={styles.modalContent}>
@@ -345,7 +299,6 @@ CRITICAL RULES:
                 <Text style={styles.modalTitle}>Chat Themes 🎨</Text>
                 <TouchableOpacity onPress={() => setThemeModalVisible(false)}><Ionicons name="close" size={28} color="#000" /></TouchableOpacity>
               </View>
-              
               <ScrollView showsVerticalScrollIndicator={false}>
                 <Text style={styles.label}>Romantic Wallpapers</Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 20 }}>
@@ -356,12 +309,10 @@ CRITICAL RULES:
                     </TouchableOpacity>
                   ))}
                 </ScrollView>
-
                 <TouchableOpacity style={styles.galleryBtn} onPress={pickCustomBackground}>
                   <Ionicons name="image" size={24} color="#fff" />
                   <Text style={{ color: '#fff', fontWeight: 'bold', marginLeft: 10 }}>Choose from Gallery</Text>
                 </TouchableOpacity>
-
                 <Text style={styles.label}>Solid Colors</Text>
                 <View style={styles.themeGrid}>
                   {THEMES.map(theme => (
@@ -377,7 +328,6 @@ CRITICAL RULES:
           </View>
         </Modal>
 
-        {/* SETTINGS MODAL */}
         <Modal visible={settingsModalVisible} animationType="slide" transparent>
           <View style={styles.modalOverlay}>
             <View style={styles.modalContent}>
@@ -385,41 +335,26 @@ CRITICAL RULES:
                 <Text style={styles.modalTitle}>App Settings ⚙️</Text>
                 <TouchableOpacity onPress={() => setSettingsModalVisible(false)}><Ionicons name="close" size={28} color="#000" /></TouchableOpacity>
               </View>
-
               <ScrollView showsVerticalScrollIndicator={false}>
                 <Text style={styles.label}>Reply Language</Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
                   {LANGUAGES.map(lang => (
-                    <TouchableOpacity key={lang} style={[styles.pill, profile.language === lang && styles.pillActive]} onPress={() => setProfile({...profile, language: lang})}>
-                      <Text style={[styles.pillText, profile.language === lang && {color: '#fff'}]}>{lang}</Text>
-                    </TouchableOpacity>
+                    <TouchableOpacity key={lang} style={[styles.pill, profile.language === lang && styles.pillActive]} onPress={() => setProfile({...profile, language: lang})}><Text style={[styles.pillText, profile.language === lang && {color: '#fff'}]}>{lang}</Text></TouchableOpacity>
                   ))}
                 </ScrollView>
-
                 <Text style={styles.label}>Text Script</Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 20 }}>
                   {SCRIPTS.map(script => (
-                    <TouchableOpacity key={script} style={[styles.pill, profile.script === script && styles.pillActive]} onPress={() => setProfile({...profile, script: script})}>
-                      <Text style={[styles.pillText, profile.script === script && {color: '#fff'}]}>{script}</Text>
-                    </TouchableOpacity>
+                    <TouchableOpacity key={script} style={[styles.pill, profile.script === script && styles.pillActive]} onPress={() => setProfile({...profile, script: script})}><Text style={[styles.pillText, profile.script === script && {color: '#fff'}]}>{script}</Text></TouchableOpacity>
                   ))}
                 </ScrollView>
-
                 <Text style={styles.label}>Update Profile</Text>
                 <TextInput style={styles.input} placeholder="Your Name" value={profile.name} onChangeText={(t) => setProfile({...profile, name: t})} />
                 <TextInput style={styles.input} placeholder="Age" keyboardType="numeric" value={profile.age} onChangeText={(t) => setProfile({...profile, age: t})} />
-                
-                <TouchableOpacity style={[styles.loginBtn, { backgroundColor: '#10b981', marginBottom: 10 }]} onPress={saveProfileSettings}>
-                  <Text style={styles.loginBtnText}>Save Settings</Text>
-                </TouchableOpacity>
-
+                <TouchableOpacity style={[styles.loginBtn, { backgroundColor: '#10b981', marginBottom: 10 }]} onPress={saveProfileSettings}><Text style={styles.loginBtnText}>Save Settings</Text></TouchableOpacity>
                 <View style={[styles.dividerLine, { marginVertical: 20 }]} />
-
                 <Text style={styles.label}>Chat Controls</Text>
-                <TouchableOpacity style={[styles.loginBtn, { backgroundColor: '#ef4444' }]} onPress={startNewChat}>
-                  <Ionicons name="chatbubbles" size={20} color="#fff" style={{ marginRight: 8 }} />
-                  <Text style={styles.loginBtnText}>Start New Chat</Text>
-                </TouchableOpacity>
+                <TouchableOpacity style={[styles.loginBtn, { backgroundColor: '#ef4444' }]} onPress={startNewChat}><Ionicons name="chatbubbles" size={20} color="#fff" style={{ marginRight: 8 }} /><Text style={styles.loginBtnText}>Start New Chat</Text></TouchableOpacity>
               </ScrollView>
             </View>
           </View>
@@ -432,7 +367,6 @@ CRITICAL RULES:
     return (
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 24}>
         <View style={{ flex: 1, paddingTop: insets.top }}>
-          
           <View style={[styles.header, { backgroundColor: customBg ? 'rgba(0,0,0,0.5)' : currentTheme.bg }]}>
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
               <View style={styles.profilePic}><Text style={{ fontSize: 20 }}>🩷</Text></View>
@@ -442,12 +376,8 @@ CRITICAL RULES:
               </View>
             </View>
             <View style={{ flexDirection: 'row' }}>
-              <TouchableOpacity onPress={() => setThemeModalVisible(true)} style={{ padding: 8, marginRight: 4 }}>
-                <Ionicons name="color-palette" size={26} color={customBg ? '#fff' : (currentTheme.mode === 'dark' ? '#fff' : '#000')} />
-              </TouchableOpacity>
-              <TouchableOpacity onPress={() => setSettingsModalVisible(true)} style={{ padding: 8 }}>
-                <Ionicons name="settings" size={24} color={customBg ? '#fff' : (currentTheme.mode === 'dark' ? '#fff' : '#000')} />
-              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setThemeModalVisible(true)} style={{ padding: 8, marginRight: 4 }}><Ionicons name="color-palette" size={26} color={customBg ? '#fff' : (currentTheme.mode === 'dark' ? '#fff' : '#000')} /></TouchableOpacity>
+              <TouchableOpacity onPress={() => setSettingsModalVisible(true)} style={{ padding: 8 }}><Ionicons name="settings" size={24} color={customBg ? '#fff' : (currentTheme.mode === 'dark' ? '#fff' : '#000')} /></TouchableOpacity>
             </View>
           </View>
 
@@ -460,27 +390,11 @@ CRITICAL RULES:
             contentContainerStyle={{ padding: 16 }}
             renderItem={({ item }) => {
               const isUser = item.role === 'user';
-              
-              const renderLeftActions = () => (
-                <View style={{ justifyContent: 'center', paddingHorizontal: 20 }}>
-                  <Ionicons name="arrow-undo" size={24} color={currentTheme.bubbleUser} />
-                </View>
-              );
-
+              const renderLeftActions = () => (<View style={{ justifyContent: 'center', paddingHorizontal: 20 }}><Ionicons name="arrow-undo" size={24} color={currentTheme.bubbleUser} /></View>);
               return (
-                <Swipeable 
-                  renderLeftActions={renderLeftActions} 
-                  onSwipeableOpen={(direction, swipeable) => {
-                    setReplyingTo(item);
-                    swipeable.close();
-                  }}
-                >
+                <Swipeable renderLeftActions={renderLeftActions} onSwipeableOpen={(direction, swipeable) => { setReplyingTo(item); swipeable.close(); }}>
                   <View style={[styles.messageWrapper, isUser ? { alignSelf: 'flex-end' } : { alignSelf: 'flex-start' }]}>
-                    <TouchableOpacity 
-                      onLongPress={() => handleCopy(item.text)} 
-                      activeOpacity={0.8}
-                      style={[styles.bubble, { backgroundColor: isUser ? currentTheme.bubbleUser : currentTheme.bubbleAI }]}
-                    >
+                    <TouchableOpacity onLongPress={() => handleCopy(item.text)} activeOpacity={0.8} style={[styles.bubble, { backgroundColor: isUser ? currentTheme.bubbleUser : currentTheme.bubbleAI }]}>
                       {item.replyContext && (
                         <View style={{ backgroundColor: 'rgba(0,0,0,0.1)', padding: 8, borderRadius: 8, marginBottom: 6, borderLeftWidth: 3, borderLeftColor: isUser ? '#fff' : currentTheme.bubbleUser }}>
                           <Text style={{ fontSize: 11, color: isUser ? '#f4f4f5' : '#52525b', fontWeight: 'bold' }}>Replying to:</Text>
@@ -508,20 +422,9 @@ CRITICAL RULES:
             
             <View style={{ flexDirection: 'row', alignItems: 'flex-end' }}>
               <View style={[styles.inputWrapper, { backgroundColor: currentTheme.mode === 'dark' || customBg ? '#262626' : '#f4f4f5' }]}>
-                <TextInput 
-                  style={[styles.input, { color: currentTheme.mode === 'dark' || customBg ? '#fff' : '#000' }]} 
-                  placeholder="Message Bestie..." 
-                  placeholderTextColor="#a1a1aa" 
-                  value={inputText} 
-                  onChangeText={setInputText} 
-                  multiline 
-                />
+                <TextInput style={[styles.input, { color: currentTheme.mode === 'dark' || customBg ? '#fff' : '#000' }]} placeholder="Message Bestie..." placeholderTextColor="#a1a1aa" value={inputText} onChangeText={setInputText} multiline />
               </View>
-              <TouchableOpacity 
-                style={[styles.sendButton, { backgroundColor: currentTheme.bubbleUser, opacity: inputText.trim() ? 1 : 0.5 }]} 
-                onPress={sendMessage} 
-                disabled={!inputText.trim()}
-              >
+              <TouchableOpacity style={[styles.sendButton, { backgroundColor: currentTheme.bubbleUser, opacity: inputText.trim() ? 1 : 0.5 }]} onPress={sendMessage} disabled={!inputText.trim()}>
                 <Ionicons name="send" size={18} color="#ffffff" style={{ marginLeft: 4 }} />
               </TouchableOpacity>
             </View>
@@ -550,19 +453,15 @@ const styles = StyleSheet.create({
   pillText: { fontWeight: 'bold', color: '#52525b' },
   loginBtn: { backgroundColor: '#db2777', padding: 16, borderRadius: 16, alignItems: 'center', marginTop: 10, marginBottom: 20, flexDirection: 'row', justifyContent: 'center' },
   loginBtnText: { color: '#fff', fontWeight: 'bold', fontSize: 18 },
-  
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: 'rgba(0,0,0,0.05)' },
   profilePic: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#fff', justifyContent: 'center', alignItems: 'center', marginRight: 12, elevation: 2 },
   headerTitle: { fontSize: 24, fontWeight: '900', letterSpacing: -0.5 },
-  
   messageWrapper: { maxWidth: '82%', marginVertical: 6 },
   bubble: { padding: 14, borderRadius: 20 },
-  
   inputContainer: { padding: 10, borderTopWidth: 1, borderTopColor: 'rgba(0,0,0,0.05)' },
   inputWrapper: { flex: 1, borderRadius: 24, paddingHorizontal: 16, minHeight: 46, justifyContent: 'center' },
   input: { fontSize: 16, maxHeight: 100, paddingTop: 12, paddingBottom: 12 },
   sendButton: { width: 46, height: 46, borderRadius: 23, justifyContent: 'center', alignItems: 'center', marginLeft: 10, marginBottom: 0 },
-
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
   modalContent: { backgroundColor: '#fff', height: '85%', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20 },
   modalTitle: { fontSize: 24, fontWeight: 'bold', color: '#000' },

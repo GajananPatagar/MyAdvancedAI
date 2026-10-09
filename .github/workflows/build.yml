@@ -25,7 +25,7 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: 🛠️ Pre-Install Android NDK (Fixes Zip Error)
+      - name: 🛠️ Pre-Install Android NDK
         run: echo "y" | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install "ndk;27.1.12297006"
 
       - name: 📦 Install dependencies
@@ -39,19 +39,13 @@ jobs:
       - name: 🏗️ Generate Native Android Code
         run: npx expo prebuild --platform android --clean
 
-      - name: 🔑 Inject Production Keystore for Google Login
-        run: |
-          cp bestie.keystore android/app/
-          sed -i 's/signingConfigs {/signingConfigs {\n        release {\n            storeFile file("bestie.keystore")\n            storePassword "bestie123"\n            keyAlias "bestie"\n            keyPassword "bestie123"\n        }/' android/app/build.gradle
-          sed -i 's/signingConfig signingConfigs.debug/signingConfig signingConfigs.release/' android/app/build.gradle
-
       - name: 🔑 Grant Gradle Permissions
         working-directory: android
         run: chmod +x ./gradlew
 
-      - name: 🔨 Compile Production APK
+      - name: 🔨 Compile Production APK (Forced Keystore Override)
         working-directory: android
-        run: ./gradlew assembleRelease
+        run: ./gradlew assembleRelease -Pandroid.injected.signing.store.file=../bestie.keystore -Pandroid.injected.signing.store.password=bestie123 -Pandroid.injected.signing.key.alias=bestie -Pandroid.injected.signing.key.password=bestie123
 
       - name: 🚀 Upload APK Artifact
         uses: actions/upload-artifact@v4

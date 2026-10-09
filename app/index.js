@@ -64,10 +64,7 @@ export default function BestieApp() {
   const [settingsModalVisible, setSettingsModalVisible] = useState(false);
   const flatListRef = useRef(null);
 
-  // ACTUALLY USING THE STABLE OPENAI COMPATIBLE ENDPOINT
   const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY; 
-  const baseUrl = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
-  const modelName = 'gemini-1.5-flash'; 
 
   useEffect(() => { checkRegistration(); }, []);
 
@@ -94,8 +91,14 @@ export default function BestieApp() {
     try {
       await GoogleSignin.hasPlayServices();
       const userInfo = await GoogleSignin.signIn();
-      const googleCredential = GoogleAuthProvider.credential(userInfo.idToken);
+      
+      // FIX FOR auth/argument-error: Extracting token correctly for v11+
+      const idToken = userInfo?.data?.idToken || userInfo?.idToken;
+      if (!idToken) throw new Error("Could not extract ID Token from Google Sign In response.");
+      
+      const googleCredential = GoogleAuthProvider.credential(idToken);
       const userCredential = await signInWithCredential(auth, googleCredential);
+      
       setProfile({ ...profile, name: userCredential.user.displayName || '' });
       Alert.alert('Success', 'Google Account linked! Please fill in your Age and Language to continue! 🩷');
     } catch (error) {
@@ -191,6 +194,11 @@ CRITICAL RULES:
       return;
     }
 
+    if (apiKey === process.env.EXPO_PUBLIC_FIREBASE_API_KEY) {
+      Alert.alert('API Key Mix-up Detected! 🚨', 'You accidentally pasted your Firebase API Key into your Gemini GitHub Secret! Please check GitHub Secrets.');
+      return;
+    }
+
     let finalPrompt = inputText;
     if (replyingTo) finalPrompt = `[Replying to your message: "${replyingTo.text}"]\n${inputText}`;
 
@@ -203,19 +211,16 @@ CRITICAL RULES:
     setReplyingTo(null);
     setIsTyping(true);
 
-    // OPENAI COMPATIBLE PAYLOAD
-    const apiPayload = [
-      { role: 'system', content: generatePersona() },
-      ...[...newHistory].reverse().map((msg) => ({ role: msg.role === 'assistant' ? 'assistant' : 'user', content: msg.apiText || msg.text }))
-    ];
+    // FIX FOR 404: Rock-solid Native Gemini API Payload
+    const nativeGeminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+    const formattedHistory = newHistory.slice().reverse().map((msg) => ({
+      role: msg.role === 'assistant' ? 'model' : 'user',
+      parts: [{ text: msg.apiText || msg.text }]
+    }));
+    const apiPayload = { systemInstruction: { parts: [{ text: generatePersona() }] }, contents: formattedHistory };
 
     try {
-      const response = await fetch(baseUrl, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: modelName, messages: apiPayload })
-      });
-      
+      const response = await fetch(nativeGeminiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(apiPayload) });
       const responseText = await response.text();
       
       if (!response.ok) {
@@ -223,11 +228,9 @@ CRITICAL RULES:
       }
 
       const data = JSON.parse(responseText);
-      
-      if (data.choices && data.choices.length > 0) {
-        const currentAIResponse = data.choices[0].message.content;
+      if (data.candidates && data.candidates.length > 0) {
+        const currentAIResponse = data.candidates[0].content.parts[0].text;
         const aiMessageId = (Date.now() + 1).toString();
-        
         setMessages((prev) => [{ _id: aiMessageId, role: 'assistant', text: currentAIResponse, createdAt: new Date().toISOString() }, ...prev]);
         saveMessageToFirebase(profile, { _id: aiMessageId, role: 'assistant', text: currentAIResponse, createdAt: new Date().toISOString() });
       } else {
